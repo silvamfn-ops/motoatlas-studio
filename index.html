@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="pt-PT" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MOTOATLAS Studio v1.0 — Planeamento, Arquivo & Sincronização PC</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- TOP WORKSPACE HEADER -->
+  <header class="studio-header">
+    <div class="header-left">
+      <div class="brand-logo">
+        <span class="logo-icon">🗺️</span>
+        <div>
+          <h1>MOTOATLAS <strong>Studio</strong> <span class="ver-tag">v1.0 PC</span></h1>
+          <p class="tagline">Planeamento de Expedições • Arquivo Multi-Viagem • Exportação para MOTOATLAS Road</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <div class="sync-pill" id="supabaseStatusPill" title="Estado da ligação Supabase">
+        <span class="dot offline" id="sbDot"></span>
+        <span id="sbStatusText">Modo Local (Supabase Off)</span>
+      </div>
+      <button type="button" id="btnOpenSupabaseModal" class="btn-outline">☁️ Configurar Supabase</button>
+      <button type="button" id="btnNewTrip" class="btn-primary">+ Nova Expedição</button>
+      <button type="button" id="btnThemeToggle" class="btn-icon" title="Alternar Tema Escuro / Claro">🌓</button>
+    </div>
+  </header>
+
+  <!-- MAIN 3-COLUMN DESKTOP WORKBENCH -->
+  <main class="studio-workbench">
+
+    <!-- COLUNA 1: ARQUIVO DE VIAGENS (COFRE) -->
+    <aside class="panel panel-archive">
+      <div class="panel-header">
+        <h2>🗄️ Arquivo de Viagens</h2>
+        <span class="count-badge" id="archiveCountBadge">0</span>
+      </div>
+
+      <div class="archive-search">
+        <input type="text" id="archiveSearchInput" placeholder="Filtrar expedições..." />
+      </div>
+
+      <ul class="trip-archive-list" id="tripArchiveList">
+        <!-- Populated by JS -->
+      </ul>
+
+      <div class="archive-footer-actions">
+        <button type="button" id="btnPullFromRoad" class="btn-cloud-pull" title="Descarregar viagem concluída da Supabase enviada pelo telemóvel">
+          📥 Receber Registos da Estrada
+        </button>
+        <div class="import-export-mini">
+          <label class="file-btn">
+            📂 Importar GPX / KMZ / JSON
+            <input type="file" id="studioFileInput" accept=".gpx,.kmz,.kml,.json" hidden />
+          </label>
+        </div>
+      </div>
+    </aside>
+
+    <!-- COLUNA 2: EDITOR DA EXPEDIÇÃO & ROADBOOK -->
+    <section class="panel panel-editor">
+      <div class="editor-topbar">
+        <div>
+          <span class="active-code-tag" id="activeTripCodeTag">CÓDIGO: ANDALUZIA-26</span>
+          <h2 id="editorTripHeading">Expedição Andaluzia & Sul Ibérico</h2>
+        </div>
+        <div class="editor-top-actions">
+          <button type="button" id="btnDuplicateTrip" class="btn-sm" title="Duplicar esta viagem">📑 Duplicar</button>
+          <button type="button" id="btnSaveTrip" class="btn-sm btn-primary">💾 Guardar Alterações</button>
+        </div>
+      </div>
+
+      <!-- Sub-navegação do Editor -->
+      <div class="studio-tabs">
+        <button type="button" class="s-tab active" data-pane="pane-geral">📋 Dados & Perfil</button>
+        <button type="button" class="s-tab" data-pane="pane-roadbook">📍 Etapas & Paragens</button>
+        <button type="button" class="s-tab" data-pane="pane-despesas">💶 Despesas & Fecho</button>
+        <button type="button" class="s-tab" data-pane="pane-export">🚀 Exportar para Estrada</button>
+      </div>
+
+      <!-- PANE 1: DADOS GERAIS & PERFIL -->
+      <div id="pane-geral" class="s-pane active">
+        <form id="tripMetaForm" class="studio-form">
+          <div class="form-grid-2">
+            <label>
+              Código Curto da Viagem (Chave Sync)
+              <input type="text" id="fldTripCode" placeholder="Ex: ANDALUZIA-26" required />
+            </label>
+            <label>
+              Perfil da Viagem
+              <select id="fldTripProfile">
+                <option value="moto">🏍️ Motociclismo (Roadbook & Autonomia)</option>
+                <option value="leisure">🧭 Lazer / Turismo Tradicional</option>
+              </select>
+            </label>
+          </div>
+
+          <label>
+            Título da Expedição
+            <input type="text" id="fldTripTitle" required />
+          </label>
+
+          <label>
+            Subtítulo / Etapa Principal
+            <input type="text" id="fldStageSubtitle" required />
+          </label>
+
+          <div class="form-grid-4">
+            <label>
+              Distância (km)
+              <input type="number" id="fldStageKm" required />
+            </label>
+            <label>
+              Odómetro Base (km)
+              <input type="number" id="fldOdoKm" required />
+            </label>
+            <label class="moto-field">
+              Depósito (L)
+              <input type="number" step="0.1" id="fldTankL" />
+            </label>
+            <label class="moto-field">
+              Consumo (L/100)
+              <input type="number" step="0.1" id="fldAvgL100" />
+            </label>
+          </div>
+
+          <label>
+            Link do Álbum Fotográfico Partilhado (Google Fotos / iCloud)
+            <input type="url" id="fldAlbumUrl" placeholder="https://photos.app.goo.gl/..." />
+          </label>
+
+          <label>
+            Notas Técnicas & Documentação de Viagem
+            <textarea id="fldTripNotes" rows="3" placeholder="Carta Verde, Assistência em Viagem, códigos de alojamento, alertas ZBE..."></textarea>
+          </label>
+        </form>
+      </div>
+
+      <!-- PANE 2: ROADBOOK & PARAGENS -->
+      <div id="pane-roadbook" class="s-pane">
+        <form id="addWpForm" class="wp-add-bar">
+          <input type="text" id="newWpName" placeholder="Nome da paragem (ou clica no mapa →)" required />
+          <select id="newWpType">
+            <option value="viewpoint">📸 Miradouro / Café</option>
+            <option value="fuel">⛽ Abastecimento</option>
+            <option value="monument">🏛️ Cultura / Monumento</option>
+            <option value="sleep">🏨 Dormida / Hotel</option>
+            <option value="start">🏁 Partida / Chegada</option>
+          </select>
+          <input type="number" id="newWpKm" placeholder="Km" style="width:75px;" required />
+          <input type="number" step="any" id="newWpLat" placeholder="Lat" style="width:105px;" required />
+          <input type="number" step="any" id="newWpLng" placeholder="Lng" style="width:105px;" required />
+          <button type="submit" class="btn-primary">+ Adicionar</button>
+        </form>
+
+        <div class="table-wrap">
+          <table class="wp-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Tipo</th>
+                <th>Local / Paragem</th>
+                <th>Km</th>
+                <th>Coordenadas</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="wpTableBody">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PANE 3: DESPESAS & RELATÓRIO DE REGRESSO -->
+      <div id="pane-despesas" class="s-pane">
+        <div class="stats-row" id="studioExpenseStats"></div>
+        <div class="table-wrap">
+          <table class="wp-table">
+            <thead>
+              <tr>
+                <th>Categoria</th>
+                <th>Pagador</th>
+                <th>Valor (€)</th>
+                <th>Detalhe / Abastecimento</th>
+                <th>Nota</th>
+              </tr>
+            </thead>
+            <tbody id="studioExpenseBody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top:0.8rem; display:flex; gap:0.5rem;">
+          <button type="button" id="btnExportCsv" class="btn-outline">📊 Exportar Relatório CSV</button>
+        </div>
+      </div>
+
+      <!-- PANE 4: EXPORTAÇÃO & ENVIO PARA MOTOATLAS ROAD -->
+      <div id="pane-export" class="s-pane">
+        <div class="export-cards">
+          <div class="export-card highlight">
+            <h3>☁️ 1. Publicar na Nuvem (Supabase → MOTOATLAS Road)</h3>
+            <p class="muted">Envia esta viagem para a tabela <code>motoatlas_trips</code> como <strong>Viagem Ativa para Estrada</strong>. No telemóvel, basta tocar em <em>"Importar Viagem Ativa"</em>.</p>
+            <button type="button" id="btnPushToSupabase" class="btn-primary btn-lg">🚀 Enviar Viagem para o Telemóvel (Supabase)</button>
+            <div id="pushStatusMsg" class="status-feedback"></div>
+          </div>
+
+          <div class="export-card">
+            <h3>📦 2. Exportar Pacote Ficheiro (100% Offline)</h3>
+            <p class="muted">Descarrega um ficheiro único <code>.motoatlas.json</code> apenas com esta expedição para transferir por WhatsApp, AirDrop ou cabo para a app de estrada.</p>
+            <div style="display:flex; flex-wrap:wrap; gap:0.6rem; margin-top:0.6rem;">
+              <button type="button" id="btnDownloadRoadPackage" class="btn-primary">⬇️ Descarregar Pacote Road (.json)</button>
+              <button type="button" id="btnPrintRoadbook" class="btn-outline">🖨️ Imprimir Roadbook A4</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- COLUNA 3: MAPA INTERATIVO DE PLANEAMENTO -->
+    <aside class="panel panel-map">
+      <div class="panel-header">
+        <h2>🌍 Mapa de Planeamento</h2>
+        <button type="button" id="btnFitRoute" class="btn-sm">🎯 Ajustar Rota</button>
+      </div>
+      <div id="studio-map"></div>
+      <p class="map-tip">💡 <strong>Dica:</strong> Clica em qualquer ponto do mapa para preencher automaticamente a Latitude e Longitude na barra de paragens.</p>
+    </aside>
+
+  </main>
+
+  <!-- MODAL CONFIGURAÇÃO SUPABASE -->
+  <div id="supabaseModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="panel-header">
+        <h3>☁️ Ligação Supabase (MOTOATLAS Studio ↔ Road)</h3>
+        <button type="button" id="btnCloseSupabaseModal" class="btn-icon">✕</button>
+      </div>
+      <p class="muted">Insere as credenciais do teu projeto Supabase para sincronizar viagens entre o PC e o telemóvel na mota.</p>
+      <form id="supabaseConfigForm" class="studio-form">
+        <label>
+          Project URL (https://xxxx.supabase.co)
+          <input type="url" id="sbUrlInput" placeholder="https://seu-projeto.supabase.co" required />
+        </label>
+        <label>
+          Anon Public Key
+          <input type="password" id="sbKeyInput" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." required />
+        </label>
+        <div style="display:flex; gap:0.5rem;">
+          <button type="submit" class="btn-primary">💾 Guardar & Testar Ligação</button>
+          <button type="button" id="btnShowSqlSchema" class="btn-outline">📄 Ver SQL da Tabela</button>
+        </div>
+      </form>
+      <pre id="sqlSchemaBox" class="sql-box hidden">create table if not exists motoatlas_trips (
+  trip_code text primary key,
+  trip_title text not null,
+  status text default 'active_road',
+  payload jsonb not null,
+  updated_at timestamptz default now()
+);</pre>
+      <div id="sbTestResult" class="status-feedback"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin=""></script>
+  <script src="app.js"></script>
+</body>
+</html>
