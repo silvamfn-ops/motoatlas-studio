@@ -1,6 +1,6 @@
-// MOTOATLAS Studio v1.0 (PC) — Gestão, Arquivo Multi-Viagem & Sincronização Supabase/JSON para MOTOATLAS Road
-const STUDIO_STORAGE_KEY = 'motoatlas_studio_v1_trips';
-const STUDIO_ACTIVE_ID_KEY = 'motoatlas_studio_v1_active_id';
+// MOTOATLAS Studio v6.2 — Arquitetura Blindada (Sem dependências frágeis antes dos eventos)
+const STUDIO_TRIPS_KEY = 'motoatlas_studio_v6_trips';
+const STUDIO_ACTIVE_ID_KEY = 'motoatlas_studio_v6_active_id';
 const SB_URL_KEY = 'motoatlas_supabase_url';
 const SB_ANON_KEY = 'motoatlas_supabase_anon_key';
 
@@ -15,9 +15,6 @@ const SAMPLE_TRIPS = [
     odometerKm: 580,
     tankCapacityL: 14.1,
     avgConsumptionL100: 3.8,
-    sharedAlbumUrl: '',
-    notes: 'Honda NC750X • Verificar pressões antes da saída. Sem restrições ZBE previstas no percurso.',
-    updatedAt: '2026-11-25 11:00',
     waypoints: [
       { name: 'Partida: Lisboa (Ponte Vasco da Gama)', type: 'start', lat: 38.7586, lng: -9.0375, km: 0 },
       { name: 'Café & Reagrupamento: Évora', type: 'viewpoint', lat: 38.5714, lng: -7.9135, km: 132 },
@@ -35,66 +32,67 @@ const SAMPLE_TRIPS = [
       [38.1200, -5.5600],
       [37.8882, -4.7794]
     ],
-    expenses: [
-      { id: 1, category: 'Combustível', amount: 21.40, payer: 'Condutor', liters: 12.1, tripKm: 318, note: 'Repsol Mérida' },
-      { id: 2, category: 'Alimentação', amount: 28.50, payer: 'Pendura', liters: 0, tripKm: 0, note: 'Almoço em Zafra' }
-    ]
-  },
-  {
-    id: 'trip-acores-26',
-    tripCode: 'ACORES-SMIGUEL',
-    profile: 'leisure',
-    tripTitle: 'Roteiro São Miguel — Açores',
-    stageSubtitle: 'Dia 1: Ponta Delgada → Sete Cidades & Mosteiros',
-    stageDistanceKm: 95,
-    odometerKm: 0,
-    tankCapacityL: 45,
-    avgConsumptionL100: 5.5,
-    sharedAlbumUrl: '',
-    notes: 'Viagem de lazer • Levar impermeável leve para miradouros em altitude.',
-    updatedAt: '2026-11-20 18:30',
-    waypoints: [
-      { name: 'Partida: Ponta Delgada', type: 'start', lat: 37.7412, lng: -25.6756, km: 0 },
-      { name: 'Miradouro da Vista do Rei', type: 'viewpoint', lat: 37.8394, lng: -25.7944, km: 28 },
-      { name: 'Piscinas Naturais dos Mosteiros', type: 'monument', lat: 37.8906, lng: -25.8211, km: 44 },
-      { name: 'Regresso: Ponta Delgada', type: 'sleep', lat: 37.7412, lng: -25.6756, km: 95 }
-    ],
-    routeCoords: [
-      [37.7412, -25.6756],
-      [37.8394, -25.7944],
-      [37.8906, -25.8211],
-      [37.7412, -25.6756]
-    ],
     expenses: []
   }
 ];
 
-const PIN_ICONS = {
-  start: '🏁',
-  fuel: '⛽',
-  viewpoint: '📸',
-  monument: '🏛️',
-  sleep: '🏨'
-};
-
-let trips = loadTrips();
-let activeTripId = localStorage.getItem(STUDIO_ACTIVE_ID_KEY) || trips[0].id;
+let trips = [];
+let activeTripId = null;
 let map = null;
 let routeLayer = null;
 let markersLayer = null;
 
-function loadTrips() {
+// --- FUNÇÕES GLOBAIS DO MODAL (GARANTE FUNCIONAMENTO IMEDIATO MESMO COM CLIQUE INLINE) ---
+window.openSupabaseModal = function() {
+  const overlay = document.getElementById('supabaseModalOverlay');
+  if (!overlay) return;
+  document.getElementById('sbUrlInput').value = localStorage.getItem(SB_URL_KEY) || '';
+  document.getElementById('sbKeyInput').value = localStorage.getItem(SB_ANON_KEY) || '';
+  document.getElementById('sbTestResult').textContent = '';
+  overlay.hidden = false;
+};
+
+window.closeSupabaseModal = function() {
+  const overlay = document.getElementById('supabaseModalOverlay');
+  if (overlay) overlay.hidden = true;
+};
+
+function showToast(msg) {
+  const toast = document.getElementById('studioToast');
+  if (!toast) return;
+  toast.textContent = msg;
+  toast.hidden = false;
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => { toast.hidden = true; }, 4200);
+}
+
+// --- INICIALIZAÇÃO SEGURA ---
+document.addEventListener('DOMContentLoaded', () => {
+  loadState();
+  bindEvents();
+  initMapSafe();
+  renderAll();
+  checkSupabaseConnection(true);
+});
+
+function loadState() {
   try {
-    const raw = localStorage.getItem(STUDIO_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && parsed.length > 0 ? parsed : structuredClone(SAMPLE_TRIPS);
+    const raw = localStorage.getItem(STUDIO_TRIPS_KEY);
+    trips = raw ? JSON.parse(raw) : JSON.parse(JSON.stringify(SAMPLE_TRIPS));
+    if (!Array.isArray(trips) || trips.length === 0) {
+      trips = JSON.parse(JSON.stringify(SAMPLE_TRIPS));
+    }
   } catch {
-    return structuredClone(SAMPLE_TRIPS);
+    trips = JSON.parse(JSON.stringify(SAMPLE_TRIPS));
+  }
+  activeTripId = localStorage.getItem(STUDIO_ACTIVE_ID_KEY) || trips[0].id;
+  if (!trips.some(t => t.id === activeTripId)) {
+    activeTripId = trips[0].id;
   }
 }
 
-function saveTrips() {
-  localStorage.setItem(STUDIO_STORAGE_KEY, JSON.stringify(trips));
+function saveState() {
+  localStorage.setItem(STUDIO_TRIPS_KEY, JSON.stringify(trips));
   localStorage.setItem(STUDIO_ACTIVE_ID_KEY, activeTripId);
 }
 
@@ -102,251 +100,280 @@ function getActiveTrip() {
   return trips.find(t => t.id === activeTripId) || trips[0];
 }
 
-// --- INIT ---
-document.addEventListener('DOMContentLoaded', () => {
-  initTabs();
-  initMap();
-  updateSupabaseIndicator();
-  renderArchiveList();
-  loadTripIntoEditor(getActiveTrip());
-  bindEvents();
-});
+function initMapSafe() {
+  try {
+    if (typeof L === 'undefined') {
+      console.warn('Leaflet não carregou (modo offline). O restante Studio continua 100% funcional.');
+      return;
+    }
+    map = L.map('studio-map').setView([38.5, -7.8], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+    routeLayer = L.layerGroup().addTo(map);
+    markersLayer = L.layerGroup().addTo(map);
 
-function initTabs() {
-  document.querySelectorAll('.s-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.s-tab').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.s-pane').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(btn.dataset.pane).classList.add('active');
+    map.on('click', (e) => {
+      const trip = getActiveTrip();
+      const lastKm = trip.waypoints.length > 0 ? trip.waypoints[trip.waypoints.length - 1].km : 0;
+      trip.waypoints.push({
+        name: `Ponto ${trip.waypoints.length + 1}`,
+        type: 'viewpoint',
+        lat: Number(e.latlng.lat.toFixed(5)),
+        lng: Number(e.latlng.lng.toFixed(5)),
+        km: lastKm + 25
+      });
+      saveState();
+      renderAll();
+      showToast('📍 Novo waypoint adicionado no mapa!');
+    });
+  } catch (err) {
+    console.error('Erro ao iniciar mapa:', err);
+  }
+}
+
+function renderAll() {
+  const trip = getActiveTrip();
+  if (!trip) return;
+
+  // Selector de viagens
+  const sel = document.getElementById('tripSelect');
+  sel.innerHTML = trips.map(t => `<option value="${t.id}" ${t.id === trip.id ? 'selected' : ''}>[${t.tripCode || 'SEM-COD'}] ${t.tripTitle}</option>`).join('');
+
+  // Campos da ficha
+  document.getElementById('inpTripCode').value = trip.tripCode || '';
+  document.getElementById('inpProfile').value = trip.profile || 'moto';
+  document.getElementById('inpTripTitle').value = trip.tripTitle || '';
+  document.getElementById('inpStageSubtitle').value = trip.stageSubtitle || '';
+  document.getElementById('inpOdometer').value = trip.odometerKm || 0;
+  document.getElementById('inpTank').value = trip.tankCapacityL || 14.1;
+  document.getElementById('inpAvgCons').value = trip.avgConsumptionL100 || 3.8;
+
+  renderWaypointsEditor(trip);
+  renderMapLayers(trip);
+  renderRoadbookA4(trip);
+  renderExpenses(trip);
+}
+
+function renderWaypointsEditor(trip) {
+  const container = document.getElementById('wpEditorList');
+  container.innerHTML = '';
+
+  (trip.waypoints || []).forEach((wp, idx) => {
+    const row = document.createElement('div');
+    row.className = 'wp-row';
+    row.innerHTML = `
+      <select data-idx="${idx}" class="wp-type">
+        <option value="start" ${wp.type === 'start' ? 'selected' : ''}>🏁 Partida</option>
+        <option value="fuel" ${wp.type === 'fuel' ? 'selected' : ''}>⛽ Posto</option>
+        <option value="viewpoint" ${wp.type === 'viewpoint' ? 'selected' : ''}>📸 Paragem</option>
+        <option value="monument" ${wp.type === 'monument' ? 'selected' : ''}>🏛️ Visita</option>
+        <option value="sleep" ${wp.type === 'sleep' ? 'selected' : ''}>🏨 Dormida</option>
+      </select>
+      <input type="text" data-idx="${idx}" class="wp-name" value="${wp.name}" />
+      <input type="number" data-idx="${idx}" class="wp-km" value="${wp.km}" title="Km acumulado" />
+      <button type="button" data-idx="${idx}" class="btn-small wp-del" title="Remover">✕</button>
+    `;
+    container.appendChild(row);
+  });
+
+  container.querySelectorAll('.wp-type').forEach(el => {
+    el.addEventListener('change', (e) => {
+      trip.waypoints[e.target.dataset.idx].type = e.target.value;
+      saveState();
+      renderMapLayers(trip);
+      renderRoadbookA4(trip);
+    });
+  });
+
+  container.querySelectorAll('.wp-name').forEach(el => {
+    el.addEventListener('input', (e) => {
+      trip.waypoints[e.target.dataset.idx].name = e.target.value;
+      saveState();
+      renderRoadbookA4(trip);
+    });
+  });
+
+  container.querySelectorAll('.wp-km').forEach(el => {
+    el.addEventListener('input', (e) => {
+      trip.waypoints[e.target.dataset.idx].km = Number(e.target.value) || 0;
+      saveState();
+      renderRoadbookA4(trip);
+    });
+  });
+
+  container.querySelectorAll('.wp-del').forEach(el => {
+    el.addEventListener('click', (e) => {
+      trip.waypoints.splice(Number(e.target.dataset.idx), 1);
+      saveState();
+      renderAll();
     });
   });
 }
 
-// --- MAP ---
-function initMap() {
-  map = L.map('studio-map').setView([38.5, -8.0], 7);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
-  routeLayer = L.layerGroup().addTo(map);
-  markersLayer = L.layerGroup().addTo(map);
-
-  map.on('click', (e) => {
-    document.getElementById('newWpLat').value = e.latlng.lat.toFixed(5);
-    document.getElementById('newWpLng').value = e.latlng.lng.toFixed(5);
-    // Muda automaticamente para o separador Etapas & Paragens se não estiver lá
-    document.querySelector('.s-tab[data-pane="pane-roadbook"]').click();
-    document.getElementById('newWpName').focus();
-  });
-}
-
-function renderMapForTrip(trip) {
-  if (!map) return;
+function renderMapLayers(trip) {
+  if (!map || !routeLayer || !markersLayer) return;
   routeLayer.clearLayers();
   markersLayer.clearLayers();
 
-  const coords = trip.routeCoords && trip.routeCoords.length > 1
+  const coords = (trip.routeCoords && trip.routeCoords.length > 1)
     ? trip.routeCoords
     : (trip.waypoints || []).map(w => [w.lat, w.lng]);
 
   if (coords.length > 1) {
-    const poly = L.polyline(coords, { color: '#d97706', weight: 5, opacity: 0.92 }).addTo(routeLayer);
+    const poly = L.polyline(coords, { color: '#f59e0b', weight: 5 }).addTo(routeLayer);
     map.fitBounds(poly.getBounds(), { padding: [25, 25] });
-  } else if (coords.length === 1) {
-    map.setView(coords[0], 11);
   }
 
-  (trip.waypoints || []).forEach((wp, idx) => {
-    const iconHtml = `<div style="font-size:20px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.65))">${PIN_ICONS[wp.type] || '📍'}</div>`;
-    const customIcon = L.divIcon({ html: iconHtml, className: 'custom-pin', iconSize: [24, 24] });
-    L.marker([wp.lat, wp.lng], { icon: customIcon })
-      .bindPopup(`<strong>${idx + 1}. ${wp.name}</strong><br/>Km ${wp.km}`)
+  (trip.waypoints || []).forEach((wp, i) => {
+    L.marker([wp.lat, wp.lng])
+      .bindPopup(`<strong>${i + 1}. ${wp.name}</strong><br/>Km ${wp.km}`)
       .addTo(markersLayer);
   });
 }
 
-// --- ARCHIVE LIST ---
-function renderArchiveList(filterText = '') {
-  const list = document.getElementById('tripArchiveList');
-  const badge = document.getElementById('archiveCountBadge');
-  const q = filterText.trim().toLowerCase();
-
-  const filtered = trips.filter(t =>
-    t.tripTitle.toLowerCase().includes(q) ||
-    t.tripCode.toLowerCase().includes(q) ||
-    t.stageSubtitle.toLowerCase().includes(q)
-  );
-
-  badge.textContent = trips.length;
-  list.innerHTML = '';
-
-  filtered.forEach(trip => {
-    const li = document.createElement('li');
-    li.className = `archive-item ${trip.id === activeTripId ? 'active' : ''}`;
-    li.innerHTML = `
-      <div class="archive-item-top">
-        <span class="code-chip">${trip.profile === 'moto' ? '🏍️' : '🧭'} ${trip.tripCode}</span>
-        <button type="button" class="btn-sm" title="Eliminar viagem" onclick="event.stopPropagation(); deleteTrip('${trip.id}')">🗑️</button>
-      </div>
-      <strong>${trip.tripTitle}</strong>
-      <div class="archive-meta">${trip.stageDistanceKm} km • ${(trip.waypoints || []).length} paragens</div>
-    `;
-    li.addEventListener('click', () => {
-      activeTripId = trip.id;
-      saveTrips();
-      renderArchiveList(document.getElementById('archiveSearchInput').value);
-      loadTripIntoEditor(trip);
-    });
-    list.appendChild(li);
-  });
-}
-
-window.deleteTrip = function(id) {
-  if (trips.length <= 1) {
-    alert('Deves manter pelo menos uma expedição no arquivo.');
-    return;
-  }
-  trips = trips.filter(t => t.id !== id);
-  if (activeTripId === id) activeTripId = trips[0].id;
-  saveTrips();
-  renderArchiveList();
-  loadTripIntoEditor(getActiveTrip());
-};
-
-// --- EDITOR ---
-function loadTripIntoEditor(trip) {
-  document.getElementById('activeTripCodeTag').textContent = `CÓDIGO SYNC: ${trip.tripCode}`;
-  document.getElementById('editorTripHeading').textContent = trip.tripTitle;
-
-  document.getElementById('fldTripCode').value = trip.tripCode;
-  document.getElementById('fldTripProfile').value = trip.profile || 'moto';
-  document.getElementById('fldTripTitle').value = trip.tripTitle;
-  document.getElementById('fldStageSubtitle').value = trip.stageSubtitle;
-  document.getElementById('fldStageKm').value = trip.stageDistanceKm;
-  document.getElementById('fldOdoKm').value = trip.odometerKm || 0;
-  document.getElementById('fldTankL').value = trip.tankCapacityL || 14.1;
-  document.getElementById('fldAvgL100').value = trip.avgConsumptionL100 || 3.8;
-  document.getElementById('fldAlbumUrl').value = trip.sharedAlbumUrl || '';
-  document.getElementById('fldTripNotes').value = trip.notes || '';
-
-  renderWaypointsTable(trip);
-  renderExpensesReport(trip);
-  renderMapForTrip(trip);
-}
-
-function saveEditorFormToTrip() {
-  const trip = getActiveTrip();
-  trip.tripCode = document.getElementById('fldTripCode').value.trim().toUpperCase() || trip.tripCode;
-  trip.profile = document.getElementById('fldTripProfile').value;
-  trip.tripTitle = document.getElementById('fldTripTitle').value.trim() || trip.tripTitle;
-  trip.stageSubtitle = document.getElementById('fldStageSubtitle').value.trim();
-  trip.stageDistanceKm = parseFloat(document.getElementById('fldStageKm').value) || 0;
-  trip.odometerKm = parseFloat(document.getElementById('fldOdoKm').value) || 0;
-  trip.tankCapacityL = parseFloat(document.getElementById('fldTankL').value) || 14.1;
-  trip.avgConsumptionL100 = parseFloat(document.getElementById('fldAvgL100').value) || 3.8;
-  trip.sharedAlbumUrl = document.getElementById('fldAlbumUrl').value.trim();
-  trip.notes = document.getElementById('fldTripNotes').value.trim();
-  trip.updatedAt = new Date().toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' });
-
-  saveTrips();
-  renderArchiveList(document.getElementById('archiveSearchInput').value);
-  loadTripIntoEditor(trip);
-}
-
-function renderWaypointsTable(trip) {
-  const tbody = document.getElementById('wpTableBody');
-  tbody.innerHTML = '';
-  (trip.waypoints || []).forEach((wp, idx) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${idx + 1}</td>
-      <td>${PIN_ICONS[wp.type] || '📍'}</td>
-      <td><strong>${wp.name}</strong></td>
+function renderRoadbookA4(trip) {
+  const sheet = document.getElementById('roadbookPrintSheet');
+  const rows = (trip.waypoints || []).map((wp, idx) => `
+    <tr>
+      <td><strong>#${idx + 1}</strong></td>
       <td>${wp.km} km</td>
+      <td>${wp.name}</td>
       <td>${wp.lat.toFixed(4)}, ${wp.lng.toFixed(4)}</td>
-      <td>
-        <button type="button" class="btn-sm" onclick="focusWaypoint(${idx})" title="Ver no mapa">🎯</button>
-        <button type="button" class="btn-sm" onclick="removeWaypoint(${idx})" title="Remover">🗑️</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
+    </tr>
+  `).join('');
+
+  sheet.innerHTML = `
+    <div style="display:flex;justify-content:space-between;border-bottom:2px solid #000;padding-bottom:8px;">
+      <div>
+        <small style="font-weight:700;">MOTOATLAS ROADBOOK • ${trip.tripCode}</small>
+        <h2 style="margin:2px 0;">${trip.tripTitle}</h2>
+        <div>${trip.stageSubtitle || ''}</div>
+      </div>
+      <div style="text-align:right;font-size:0.85rem;">
+        <div><strong>Odómetro Inicial:</strong> ${trip.odometerKm} km</div>
+        <div><strong>Autonomia Est.:</strong> ${Math.round(((trip.tankCapacityL || 14.1) / (trip.avgConsumptionL100 || 3.8)) * 100)} km</div>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:55px;">Ord.</th>
+          <th style="width:90px;">Marco</th>
+          <th>Ponto de Passagem / Notas</th>
+          <th style="width:165px;">Coordenadas GPS</th>
+        </tr>
+      </thead>
+      <tbody>${rows || '<tr><td colspan="4">Sem waypoints definidos.</td></tr>'}</tbody>
+    </table>
+  `;
 }
 
-window.focusWaypoint = function(idx) {
-  const wp = getActiveTrip().waypoints[idx];
-  if (wp && map) map.setView([wp.lat, wp.lng], 13);
-};
-
-window.removeWaypoint = function(idx) {
-  const trip = getActiveTrip();
-  trip.waypoints.splice(idx, 1);
-  saveTrips();
-  renderWaypointsTable(trip);
-  renderMapForTrip(trip);
-};
-
-function renderExpensesReport(trip) {
-  const stats = document.getElementById('studioExpenseStats');
-  const tbody = document.getElementById('studioExpenseBody');
+function renderExpenses(trip) {
   const exps = trip.expenses || [];
-  const total = exps.reduce((s, e) => s + e.amount, 0);
-  const fuelTotal = exps.filter(e => e.category === 'Combustível').reduce((s, e) => s + e.amount, 0);
+  const total = exps.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const totalLiters = exps.reduce((s, e) => s + (Number(e.liters) || 0), 0);
+  document.getElementById('stTotalExpenses').textContent = `${total.toFixed(2)} €`;
 
-  stats.innerHTML = `
-    <div class="stat-box"><span class="archive-meta">Total Despesas</span><br/><strong>${total.toFixed(2)} €</strong></div>
-    <div class="stat-box"><span class="archive-meta">Combustível</span><br/><strong>${fuelTotal.toFixed(2)} €</strong></div>
-    <div class="stat-box"><span class="archive-meta">Registos</span><br/><strong>${exps.length}</strong></div>
+  document.getElementById('stStatsSummary').innerHTML = `
+    <span><strong>Registos:</strong> ${exps.length}</span>
+    <span><strong>Combustível Total:</strong> ${totalLiters.toFixed(2)} L</span>
+    <span><strong>Odómetro Consolidado:</strong> ${Math.round(trip.odometerKm || 0)} km</span>
   `;
 
-  tbody.innerHTML = exps.length === 0
-    ? '<tr><td colspan="5" class="muted">Sem despesas registadas nesta viagem (serão preenchidas após o regresso da estrada).</td></tr>'
-    : exps.map(e => `
-        <tr>
-          <td>${e.category}</td>
-          <td>${e.payer}</td>
-          <td><strong>${e.amount.toFixed(2)} €</strong></td>
-          <td>${e.liters ? `${e.liters} L / ${e.tripKm} km` : '—'}</td>
-          <td>${e.note || ''}</td>
-        </tr>
-      `).join('');
+  const list = document.getElementById('stExpenseList');
+  list.innerHTML = exps.length === 0
+    ? '<li style="color:var(--muted);">Sem despesas registadas nesta viagem.</li>'
+    : exps.slice().reverse().map((e, revIdx) => {
+        const realIdx = exps.length - 1 - revIdx;
+        return `
+          <li>
+            <div>
+              <strong>${e.category}</strong> (${e.payer || 'Condutor'})
+              <div style="font-size:0.78rem;color:var(--muted);">${e.liters ? `${e.liters} L • ` : ''}${e.tripKm ? `+${e.tripKm} km • ` : ''}${e.note || ''}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:0.6rem;">
+              <strong>${Number(e.amount).toFixed(2)} €</strong>
+              <button type="button" class="btn-small" onclick="window.deleteStudioExpense(${realIdx})">✕</button>
+            </div>
+          </li>
+        `;
+      }).join('');
 }
 
-// --- SUPABASE SYNC BRIDGE (STUDIO <-> ROAD) ---
-function getSupabaseCreds() {
+window.deleteStudioExpense = function(idx) {
+  const trip = getActiveTrip();
+  trip.expenses.splice(idx, 1);
+  saveState();
+  renderExpenses(trip);
+};
+
+// --- INTEGRAÇÃO SUPABASE (STUDIO <-> ROAD) ---
+function getSbCreds() {
   return {
     url: (localStorage.getItem(SB_URL_KEY) || '').trim().replace(/\/$/, ''),
     key: (localStorage.getItem(SB_ANON_KEY) || '').trim()
   };
 }
 
-function updateSupabaseIndicator() {
-  const { url, key } = getSupabaseCreds();
-  const dot = document.getElementById('sbDot');
+function setSbIndicator(state, label) {
+  const dot = document.getElementById('sbStatusDot');
   const txt = document.getElementById('sbStatusText');
-  if (url && key) {
-    dot.className = 'dot online';
-    txt.textContent = 'Supabase Ligado';
-  } else {
-    dot.className = 'dot offline';
-    txt.textContent = 'Modo Local (Supabase Off)';
+  if (dot) dot.className = `dot ${state}`;
+  if (txt) txt.textContent = label;
+}
+
+async function checkSupabaseConnection(silent = false) {
+  const { url, key } = getSbCreds();
+  const feedback = document.getElementById('sbTestResult');
+
+  if (!url || !key) {
+    setSbIndicator('offline', 'Supabase Não Configurado');
+    if (!silent && feedback) feedback.textContent = '⚠️ Preenche o Project URL e a Anon Public Key.';
+    return false;
+  }
+
+  if (!silent && feedback) feedback.textContent = '⏳ A testar ligação à tabela motoatlas_trips...';
+
+  try {
+    const resp = await fetch(`${url}/rest/v1/motoatlas_trips?select=trip_code&limit=1`, {
+      headers: {
+        'apikey': key,
+        'Authorization': `Bearer ${key}`
+      }
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`HTTP ${resp.status}: ${errText.slice(0, 120)}`);
+    }
+
+    setSbIndicator('online', 'Supabase Ligado');
+    if (!silent && feedback) feedback.textContent = '✅ Ligação Supabase verificada com sucesso!';
+    return true;
+  } catch (err) {
+    setSbIndicator('error', 'Erro Supabase');
+    if (!silent && feedback) feedback.textContent = `❌ Falha na ligação: ${err.message}`;
+    return false;
   }
 }
 
-async function pushActiveTripToSupabase() {
-  saveEditorFormToTrip();
-  const trip = getActiveTrip();
-  const statusEl = document.getElementById('pushStatusMsg');
-  const { url, key } = getSupabaseCreds();
-
+async function pushTripToSupabase() {
+  const { url, key } = getSbCreds();
   if (!url || !key) {
-    statusEl.textContent = '⚠️ Configura primeiro o URL e a Anon Key do Supabase no botão superior.';
+    window.openSupabaseModal();
+    document.getElementById('sbTestResult').textContent = '⚠️ Configura primeiro o Supabase para enviar ao telemóvel.';
     return;
   }
 
-  statusEl.textContent = '⏳ A enviar expedição para a Supabase...';
+  const trip = getActiveTrip();
+  if (!trip.tripCode) {
+    showToast('⚠️ Define um Código Curto na viagem (ex: ANDALUZIA-26) antes de enviar.');
+    return;
+  }
+
+  showToast(`⏳ A enviar "${trip.tripCode}" para o MOTOATLAS Road...`);
   try {
     const resp = await fetch(`${url}/rest/v1/motoatlas_trips`, {
       method: 'POST',
@@ -357,281 +384,271 @@ async function pushActiveTripToSupabase() {
         'Prefer': 'resolution=merge-duplicates'
       },
       body: JSON.stringify({
-        trip_code: trip.tripCode,
+        trip_code: trip.tripCode.trim().toUpperCase(),
         trip_title: trip.tripTitle,
         status: 'active_road',
         payload: trip,
         updated_at: new Date().toISOString()
       })
     });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} — Verifica se a tabela motoatlas_trips existe.`);
-    statusEl.textContent = `✅ Viagem "${trip.tripCode}" publicada! Já podes importá-la no MOTOATLAS Road.`;
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    setSbIndicator('online', 'Supabase Ligado');
+    showToast(`✅ Viagem "${trip.tripCode}" publicada! Abre o MOTOATLAS Road e descarrega.`);
   } catch (err) {
-    statusEl.textContent = `❌ Erro ao enviar: ${err.message}`;
+    showToast(`❌ Erro ao publicar no Supabase: ${err.message}`);
   }
 }
 
-async function pullCompletedTripFromSupabase() {
-  const { url, key } = getSupabaseCreds();
+async function pullTripFromSupabase() {
+  const { url, key } = getSbCreds();
   if (!url || !key) {
-    alert('Configura primeiro a ligação Supabase para receber registos enviados pela app de estrada.');
+    window.openSupabaseModal();
     return;
   }
 
   const trip = getActiveTrip();
+  const code = (trip.tripCode || '').trim().toUpperCase();
+  if (!code) {
+    showToast('⚠️ Indica o código da viagem ativa para receber os registos.');
+    return;
+  }
+
+  showToast(`⏳ A procurar registos da estrada para "${code}"...`);
   try {
-    const resp = await fetch(
-      `${url}/rest/v1/motoatlas_trips?trip_code=eq.${encodeURIComponent(trip.tripCode)}&select=*`,
-      {
-        headers: {
-          'apikey': key,
-          'Authorization': `Bearer ${key}`
-        }
+    const resp = await fetch(`${url}/rest/v1/motoatlas_trips?trip_code=eq.${encodeURIComponent(code)}&select=*`, {
+      headers: {
+        'apikey': key,
+        'Authorization': `Bearer ${key}`
       }
-    );
+    });
     const rows = await resp.json();
     if (!rows || rows.length === 0) {
-      alert(`Não foi encontrada nenhuma viagem com o código "${trip.tripCode}" na Supabase.`);
+      showToast(`❌ Nenhum registo encontrado na Supabase para "${code}".`);
       return;
     }
-    const remotePayload = rows[0].payload;
+
+    const remoteTrip = rows[0].payload;
     const idx = trips.findIndex(t => t.id === trip.id);
-    if (idx !== -1 && remotePayload) {
-      trips[idx] = { ...trips[idx], ...remotePayload, id: trip.id };
-      saveTrips();
-      renderArchiveList();
-      loadTripIntoEditor(trips[idx]);
-      alert(`✅ Dados atualizados recebidos da estrada para "${trip.tripTitle}"!`);
+    if (idx !== -1) {
+      trips[idx] = { ...trips[idx], ...remoteTrip, id: trip.id };
+      saveState();
+      renderAll();
     }
+    showToast(`✅ Registos recebidos! Despesas (${(remoteTrip.expenses || []).length}) e odómetro (${remoteTrip.odometerKm} km) atualizados.`);
   } catch (err) {
-    alert(`Erro ao sincronizar da Supabase: ${err.message}`);
+    showToast(`❌ Erro ao receber da estrada: ${err.message}`);
   }
 }
 
-// --- FILE IMPORT / EXPORT ---
-function downloadSingleTripPackage() {
-  saveEditorFormToTrip();
-  const trip = getActiveTrip();
-  const pkg = {
-    format: 'motoatlas-road-package-v1',
-    exportedAt: new Date().toISOString(),
-    trip
-  };
-  const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${trip.tripCode.toLowerCase()}.motoatlas.json`;
-  a.click();
-}
-
-async function handleStudioFileImport(file) {
-  const name = file.name.toLowerCase();
-  if (name.endsWith('.json')) {
-    const parsed = JSON.parse(await file.text());
-    const importedTrip = parsed.trip ? parsed.trip : parsed;
-    importedTrip.id = `trip-${Date.now()}`;
-    importedTrip.tripCode = importedTrip.tripCode || `IMP-${Math.floor(Math.random() * 900 + 100)}`;
-    trips.unshift(importedTrip);
-    activeTripId = importedTrip.id;
-    saveTrips();
-    renderArchiveList();
-    loadTripIntoEditor(importedTrip);
-    return;
-  }
-
-  let xmlText = '';
-  if (name.endsWith('.kmz')) {
-    const zip = await JSZip.loadAsync(file);
-    const kmlFile = Object.values(zip.files).find(f => f.name.endsWith('.kml'));
-    if (!kmlFile) throw new Error('KML não encontrado no KMZ');
-    xmlText = await kmlFile.async('text');
-  } else {
-    xmlText = await file.text();
-  }
-
-  const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
-  const coords = [];
-  const wpts = [];
-
-  if (name.endsWith('.gpx')) {
-    doc.querySelectorAll('trkpt, rtept').forEach(pt => {
-      const lat = parseFloat(pt.getAttribute('lat'));
-      const lng = parseFloat(pt.getAttribute('lon'));
-      if (!isNaN(lat) && !isNaN(lng)) coords.push([lat, lng]);
-    });
-    doc.querySelectorAll('wpt').forEach((pt, idx) => {
-      const lat = parseFloat(pt.getAttribute('lat'));
-      const lng = parseFloat(pt.getAttribute('lon'));
-      const wName = pt.querySelector('name')?.textContent || `Paragem ${idx + 1}`;
-      wpts.push({ name: wName, type: 'viewpoint', lat, lng, km: idx * 45 });
-    });
-  } else {
-    doc.querySelectorAll('LineString coordinates').forEach(node => {
-      node.textContent.trim().split(/\s+/).forEach(pair => {
-        const [lng, lat] = pair.split(',').map(Number);
-        if (!isNaN(lat) && !isNaN(lng)) coords.push([lat, lng]);
-      });
-    });
-    doc.querySelectorAll('Placemark').forEach((pm, idx) => {
-      const pt = pm.querySelector('Point coordinates');
-      if (pt) {
-        const [lng, lat] = pt.textContent.trim().split(',').map(Number);
-        const wName = pm.querySelector('name')?.textContent || `Ponto ${idx + 1}`;
-        wpts.push({ name: wName, type: 'monument', lat, lng, km: idx * 40 });
+// --- EVENTOS DE INTERFACE ---
+function bindEvents() {
+  // Tabs
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.tab).classList.add('active');
+      if (btn.dataset.tab === 'tab-planner' && map) {
+        setTimeout(() => map.invalidateSize(), 100);
       }
     });
-  }
+  });
 
-  const newTrip = {
-    id: `trip-${Date.now()}`,
-    tripCode: file.name.replace(/\.[^/.]+$/, '').toUpperCase().slice(0, 14),
-    profile: 'moto',
-    tripTitle: file.name.replace(/\.[^/.]+$/, ''),
-    stageSubtitle: `Rota importada (${coords.length} pontos)`,
-    stageDistanceKm: wpts.length > 0 ? wpts[wpts.length - 1].km : 150,
-    odometerKm: 0,
-    tankCapacityL: 14.1,
-    avgConsumptionL100: 3.8,
-    sharedAlbumUrl: '',
-    notes: '',
-    waypoints: wpts,
-    routeCoords: coords,
-    expenses: []
-  };
-
-  trips.unshift(newTrip);
-  activeTripId = newTrip.id;
-  saveTrips();
-  renderArchiveList();
-  loadTripIntoEditor(newTrip);
-}
-
-// --- EVENTS ---
-function bindEvents() {
+  // Tema
   document.getElementById('btnThemeToggle').addEventListener('click', () => {
     const curr = document.documentElement.getAttribute('data-theme');
     document.documentElement.setAttribute('data-theme', curr === 'dark' ? 'light' : 'dark');
   });
 
-  document.getElementById('archiveSearchInput').addEventListener('input', (e) => {
-    renderArchiveList(e.target.value);
+  // Fechar modal ao clicar fora
+  document.getElementById('supabaseModalOverlay').addEventListener('click', (e) => {
+    if (e.target.id === 'supabaseModalOverlay') window.closeSupabaseModal();
   });
 
-  document.getElementById('btnNewTrip').addEventListener('click', () => {
-    const newTrip = {
-      id: `trip-${Date.now()}`,
-      tripCode: `EXP-${Math.floor(Math.random() * 900 + 100)}`,
-      profile: 'moto',
-      tripTitle: 'Nova Expedição',
-      stageSubtitle: 'Etapa 1: Partida → Destino',
-      stageDistanceKm: 250,
-      odometerKm: 0,
-      tankCapacityL: 14.1,
-      avgConsumptionL100: 3.8,
-      sharedAlbumUrl: '',
-      notes: '',
-      waypoints: [],
-      routeCoords: [],
-      expenses: []
-    };
-    trips.unshift(newTrip);
-    activeTripId = newTrip.id;
-    saveTrips();
-    renderArchiveList();
-    loadTripIntoEditor(newTrip);
-  });
-
-  document.getElementById('btnDuplicateTrip').addEventListener('click', () => {
-    const copy = structuredClone(getActiveTrip());
-    copy.id = `trip-${Date.now()}`;
-    copy.tripCode = `${copy.tripCode}-CP`;
-    copy.tripTitle = `${copy.tripTitle} (Cópia)`;
-    trips.unshift(copy);
-    activeTripId = copy.id;
-    saveTrips();
-    renderArchiveList();
-    loadTripIntoEditor(copy);
-  });
-
-  document.getElementById('btnSaveTrip').addEventListener('click', saveEditorFormToTrip);
-
-  document.getElementById('addWpForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const trip = getActiveTrip();
-    trip.waypoints.push({
-      name: document.getElementById('newWpName').value.trim(),
-      type: document.getElementById('newWpType').value,
-      km: parseFloat(document.getElementById('newWpKm').value) || 0,
-      lat: parseFloat(document.getElementById('newWpLat').value),
-      lng: parseFloat(document.getElementById('newWpLng').value)
-    });
-    trip.waypoints.sort((a, b) => a.km - b.km);
-    saveTrips();
-    renderWaypointsTable(trip);
-    renderMapForTrip(trip);
-    e.target.reset();
-  });
-
-  document.getElementById('btnFitRoute').addEventListener('click', () => renderMapForTrip(getActiveTrip()));
-
-  document.getElementById('btnDownloadRoadPackage').addEventListener('click', downloadSingleTripPackage);
-  document.getElementById('btnPrintRoadbook').addEventListener('click', () => window.print());
-
-  document.getElementById('btnExportCsv').addEventListener('click', () => {
-    const trip = getActiveTrip();
-    const rows = [['Categoria', 'Pagador', 'Valor_EUR', 'Litros', 'Km', 'Nota']];
-    (trip.expenses || []).forEach(e => {
-      rows.push([e.category, e.payer, e.amount.toFixed(2), e.liters || 0, e.tripKm || 0, `"${e.note || ''}"`]);
-    });
-    const blob = new Blob([rows.map(r => r.join(',')).join('
-')], { type: 'text/csv;charset=utf-8;' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${trip.tripCode.toLowerCase()}_despesas.csv`;
-    a.click();
-  });
-
-  document.getElementById('studioFileInput').addEventListener('change', (e) => {
-    if (e.target.files[0]) handleStudioFileImport(e.target.files[0]);
-  });
-
-  // Supabase Modal & Sync
-  document.getElementById('btnOpenSupabaseModal').addEventListener('click', () => {
-    const { url, key } = getSupabaseCreds();
-    document.getElementById('sbUrlInput').value = url;
-    document.getElementById('sbKeyInput').value = key;
-    document.getElementById('supabaseModal').classList.remove('hidden');
-  });
-
-  document.getElementById('btnCloseSupabaseModal').addEventListener('click', () => {
-    document.getElementById('supabaseModal').classList.add('hidden');
-  });
-
-  document.getElementById('btnShowSqlSchema').addEventListener('click', () => {
-    document.getElementById('sqlSchemaBox').classList.toggle('hidden');
-  });
-
-  document.getElementById('supabaseConfigForm').addEventListener('submit', async (e) => {
+  // Formulário Supabase
+  document.getElementById('sbConfigForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const url = document.getElementById('sbUrlInput').value.trim().replace(/\/$/, '');
     const key = document.getElementById('sbKeyInput').value.trim();
     localStorage.setItem(SB_URL_KEY, url);
     localStorage.setItem(SB_ANON_KEY, key);
-    updateSupabaseIndicator();
-
-    const resEl = document.getElementById('sbTestResult');
-    resEl.textContent = '⏳ A testar ligação à tabela motoatlas_trips...';
-    try {
-      const resp = await fetch(`${url}/rest/v1/motoatlas_trips?limit=1`, {
-        headers: { 'apikey': key, 'Authorization': `Bearer ${key}` }
-      });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status} (cria a tabela usando o botão "Ver SQL da Tabela")`);
-      resEl.textContent = '✅ Ligação Supabase verificada com sucesso!';
-    } catch (err) {
-      resEl.textContent = `⚠️ Guardado localmente, mas o teste falhou: ${err.message}`;
-    }
+    await checkSupabaseConnection(false);
   });
 
-  document.getElementById('btnPushToSupabase').addEventListener('click', pushActiveTripToSupabase);
-  document.getElementById('btnPullFromRoad').addEventListener('click', pullCompletedTripFromSupabase);
+  document.getElementById('btnTestSbOnly').addEventListener('click', async () => {
+    const url = document.getElementById('sbUrlInput').value.trim().replace(/\/$/, '');
+    const key = document.getElementById('sbKeyInput').value.trim();
+    localStorage.setItem(SB_URL_KEY, url);
+    localStorage.setItem(SB_ANON_KEY, key);
+    await checkSupabaseConnection(false);
+  });
+
+  // Gestão de Viagens
+  document.getElementById('tripSelect').addEventListener('change', (e) => {
+    activeTripId = e.target.value;
+    saveState();
+    renderAll();
+  });
+
+  document.getElementById('btnNewTrip').addEventListener('click', () => {
+    const newId = 'trip-' + Date.now();
+    trips.push({
+      id: newId,
+      tripCode: 'NOVA-' + String(trips.length + 1).padStart(2, '0'),
+      profile: 'moto',
+      tripTitle: 'Nova Expedição',
+      stageSubtitle: 'Etapa 1',
+      odometerKm: 0,
+      tankCapacityL: 14.1,
+      avgConsumptionL100: 3.8,
+      waypoints: [],
+      routeCoords: [],
+      expenses: []
+    });
+    activeTripId = newId;
+    saveState();
+    renderAll();
+  });
+
+  document.getElementById('btnDuplicateTrip').addEventListener('click', () => {
+    const curr = getActiveTrip();
+    const copy = JSON.parse(JSON.stringify(curr));
+    copy.id = 'trip-' + Date.now();
+    copy.tripTitle = curr.tripTitle + ' (Cópia)';
+    trips.push(copy);
+    activeTripId = copy.id;
+    saveState();
+    renderAll();
+    showToast('📋 Viagem duplicada com sucesso.');
+  });
+
+  document.getElementById('btnDeleteTrip').addEventListener('click', () => {
+    if (trips.length <= 1) {
+      showToast('⚠️ Mantém pelo menos uma viagem no arquivo.');
+      return;
+    }
+    trips = trips.filter(t => t.id !== activeTripId);
+    activeTripId = trips[0].id;
+    saveState();
+    renderAll();
+    showToast('🗑️ Viagem removida.');
+  });
+
+  // Campos editáveis da viagem
+  const bindField = (id, prop, isNum = false, upper = false) => {
+    document.getElementById(id).addEventListener('input', (e) => {
+      const trip = getActiveTrip();
+      let val = e.target.value;
+      if (isNum) val = parseFloat(val) || 0;
+      if (upper) val = val.toUpperCase();
+      trip[prop] = val;
+      saveState();
+      renderRoadbookA4(trip);
+      if (prop === 'tripCode' || prop === 'tripTitle') {
+        const opt = document.querySelector(`#tripSelect option[value="${trip.id}"]`);
+        if (opt) opt.textContent = `[${trip.tripCode || 'SEM-COD'}] ${trip.tripTitle}`;
+      }
+    });
+  };
+
+  bindField('inpTripCode', 'tripCode', false, true);
+  bindField('inpProfile', 'profile');
+  bindField('inpTripTitle', 'tripTitle');
+  bindField('inpStageSubtitle', 'stageSubtitle');
+  bindField('inpOdometer', 'odometerKm', true);
+  bindField('inpTank', 'tankCapacityL', true);
+  bindField('inpAvgCons', 'avgConsumptionL100', true);
+
+  document.getElementById('btnAddWp').addEventListener('click', () => {
+    const trip = getActiveTrip();
+    const last = trip.waypoints[trip.waypoints.length - 1];
+    trip.waypoints.push({
+      name: `Paragem ${trip.waypoints.length + 1}`,
+      type: 'viewpoint',
+      lat: last ? Number((last.lat + 0.05).toFixed(5)) : 38.7223,
+      lng: last ? Number((last.lng + 0.05).toFixed(5)) : -9.1393,
+      km: last ? last.km + 50 : 0
+    });
+    saveState();
+    renderAll();
+  });
+
+  document.getElementById('btnFitMap').addEventListener('click', () => renderMapLayers(getActiveTrip()));
+
+  // Importar GPX
+  document.getElementById('gpxFileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const text = await file.text();
+    const xml = new DOMParser().parseFromString(text, 'text/xml');
+    const trkpts = Array.from(xml.querySelectorAll('trkpt, rtept'));
+    if (trkpts.length === 0) {
+      showToast('❌ Não foram encontrados pontos de rota no ficheiro GPX.');
+      return;
+    }
+    const trip = getActiveTrip();
+    trip.routeCoords = trkpts.map(pt => [parseFloat(pt.getAttribute('lat')), parseFloat(pt.getAttribute('lon'))]);
+    saveState();
+    renderMapLayers(trip);
+    showToast(`✅ GPX importado (${trip.routeCoords.length} pontos de traçado).`);
+  });
+
+  // Despesas no Studio
+  document.getElementById('studioExpenseForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const trip = getActiveTrip();
+    const category = document.getElementById('stExpCat').value;
+    const amount = parseFloat(document.getElementById('stExpAmount').value) || 0;
+    const liters = category === 'Combustível' ? (parseFloat(document.getElementById('stExpLiters').value) || 0) : 0;
+    const tripKm = category === 'Combustível' ? (parseFloat(document.getElementById('stExpTripKm').value) || 0) : 0;
+    const payer = document.getElementById('stExpPayer').value;
+    const note = document.getElementById('stExpNote').value.trim();
+
+    if (tripKm > 0) trip.odometerKm = (trip.odometerKm || 0) + tripKm;
+    trip.expenses = trip.expenses || [];
+    trip.expenses.push({ id: Date.now(), category, amount, payer, liters, tripKm, note });
+
+    saveState();
+    renderAll();
+    e.target.reset();
+    showToast('💾 Registo adicionado ao histórico da viagem.');
+  });
+
+  // Ponte Sync
+  document.getElementById('btnPushToRoad').addEventListener('click', pushTripToSupabase);
+  document.getElementById('btnPullFromRoad').addEventListener('click', pullTripFromSupabase);
+
+  document.getElementById('btnExportPackage').addEventListener('click', () => {
+    const trip = getActiveTrip();
+    const blob = new Blob([JSON.stringify({ format: 'motoatlas-package-v6', trip }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${(trip.tripCode || 'viagem').toLowerCase()}.motoatlas.json`;
+    a.click();
+  });
+
+  document.getElementById('importJsonInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      const incoming = parsed.trip ? parsed.trip : parsed;
+      const existingIdx = trips.findIndex(t => t.tripCode && t.tripCode === incoming.tripCode);
+      if (existingIdx !== -1) {
+        trips[existingIdx] = { ...trips[existingIdx], ...incoming, id: trips[existingIdx].id };
+        activeTripId = trips[existingIdx].id;
+      } else {
+        incoming.id = 'trip-' + Date.now();
+        trips.push(incoming);
+        activeTripId = incoming.id;
+      }
+      saveState();
+      renderAll();
+      showToast(`✅ Ficheiro "${incoming.tripTitle}" importado com sucesso!`);
+    } catch (err) {
+      showToast(`❌ Erro ao ler ficheiro JSON: ${err.message}`);
+    }
+  });
 }

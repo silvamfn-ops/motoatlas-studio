@@ -1,13 +1,8 @@
-# MOTOATLAS Studio v1.0 (Repositório PC)
+# MOTOATLAS Studio v6.2 (Repositório Principal / PC)
 
-Aplicação de secretária dedicada à **criação, edição, arquivo e exportação** de expedições, concebida para alimentar a aplicação complementar de guiador **MOTOATLAS Road**.
+Versão blindada contra bloqueios de cache, falhas de carregamento offline do mapa ou incompatibilidades de `<dialog>` entre navegadores.
 
-## Funcionalidades Principais
-1. **Bancada de 3 Colunas para Computador:**
-   * **Arquivo de Viagens (Esquerda):** Gestão e pesquisa de múltiplas expedições (Moto ou Lazer), duplicação de roteiros e receção de registos concluídos da estrada.
-   * **Editor Central:** Configuração de código curto da viagem (`trip_code`), dados de autonomia, tabela de paragens/roadbook, relatório de despesas pós-viagem e exportação.
-   * **Mapa Interativo (Direita):** Cartografia OpenStreetMap detalhada com inserção rápida de coordenadas por clique no mapa.
-2. **Ponte com MOTOATLAS Road (Nuvem ou Offline):**
-   * **Via Supabase:** Publicação com 1 clique (`🚀 Enviar Viagem para o Telemóvel`) e receção dos registos efetuados durante a viagem (`📥 Receber Registos da Estrada`).
-   * **Via Ficheiro Leve (`.motoatlas.json`):** Exportação individual da viagem selecionada para transferência 100% offline.
-3. **Impressão A4 Limpa:** Botão dedicado para imprimir o roadbook da viagem em folha A4.
+## Melhorias de Estabilidade v6.2
+- **Abertura Garantida do Modal Supabase:** Controlo híbrido (`window.openSupabaseModal()` + overlay CSS dedicado) independente da ordem de carregamento de bibliotecas externas.
+- **Isolamento de Erros de Rede:** Se o Leaflet/OpenStreetMap estiver temporariamente inacessível, o Studio continua 100% operacional sem interromper os eventos dos botões.
+- **Sincronização Direta Studio ↔ Road:** Publica a viagem ativa pelo código curto (`ANDALUZIA-26`) e consolida despesas, abastecimentos e odómetro no regresso.
