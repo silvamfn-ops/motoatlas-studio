@@ -1,13 +1,21 @@
 {
   "name": "MOTOATLAS Studio",
   "short_name": "MOTOATLAS Studio",
-  "description": "Planeamento de Expedições, Roadbook A4 e Sincronização Supabase",
+  "description": "Planeamento de Rotas, Roadbooks A4 e Exportação para MOTOATLAS Road",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#0b0f19",
+  "background_color": "#0b1120",
   "theme_color": "#f59e0b",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
   ]
 }
