@@ -1,242 +1,438 @@
 <!DOCTYPE html>
-<html lang="pt-PT" data-theme="dark">
+<html lang="pt">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MOTOATLAS Studio v6.2 — Planeamento, Roadbook & Sync</title>
-  <link rel="manifest" href="manifest.json" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-  <link rel="stylesheet" href="style.css" />
+  <title>MotoAtlas Studio</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body>
-  <!-- CABEÇALHO PRINCIPAL -->
-  <header class="studio-header">
-    <div class="brand-area">
-      <span class="brand-badge">STUDIO v6.2</span>
-      <h1>MOTOATLAS</h1>
-      <span class="brand-sub">Centro de Planeamento, Roadbook A4 & Sincronização</span>
-    </div>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div id="root"></div>
 
-    <div class="header-controls">
-      <div class="sb-status-pill" id="sbStatusPill" title="Estado da ligação Supabase">
-        <span class="dot offline" id="sbStatusDot"></span>
-        <span id="sbStatusText">Supabase Offline</span>
-      </div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
 
-      <button type="button" id="btnOpenSbModal" class="btn-header primary" onclick="window.openSupabaseModal()">
-        ☁️ Configurar Supabase
-      </button>
-      <button type="button" id="btnThemeToggle" class="btn-header" title="Alternar Tema">🌓</button>
-    </div>
-  </header>
+    // =========================================================================
+    // CONFIGURAÇÃO DO SUPABASE
+    // Cola aqui o URL e a Anon Key do teu projeto (ou guarda no ecrã de setup)
+    // =========================================================================
+    const DEFAULT_SUPABASE_URL = "";
+    const DEFAULT_SUPABASE_ANON_KEY = "";
 
-  <!-- BARRA DE FERRAMENTAS DA VIAGEM -->
-  <nav class="trip-toolbar">
-    <div class="trip-selector-group">
-      <label for="tripSelect">Viagem Ativa:</label>
-      <select id="tripSelect"></select>
-      <button type="button" id="btnNewTrip" class="btn-tool">➕ Nova Viagem</button>
-      <button type="button" id="btnDuplicateTrip" class="btn-tool">📋 Duplicar</button>
-      <button type="button" id="btnDeleteTrip" class="btn-tool danger">🗑️ Apagar</button>
-    </div>
+    const WAYPOINT_CONFIG = {
+      fuel: { label: 'Combustível', color: '#f59e0b', icon: '⛽' },
+      zbe_warning: { label: 'Alerta ZBE', color: '#ef4444', icon: '⚠️' },
+      coffee_stop: { label: 'Paragem / Café', color: '#10b981', icon: '☕' },
+      viewpoint: { label: 'Miradouro', color: '#3b82f6', icon: '📷' },
+      meeting_point: { label: 'Encontro', color: '#8b5cf6', icon: '📍' },
+    };
 
-    <div class="sync-bridge-group">
-      <button type="button" id="btnPushToRoad" class="btn-tool success">🚀 Enviar Viagem para o Telemóvel</button>
-      <button type="button" id="btnPullFromRoad" class="btn-tool accent">📥 Receber Registos da Estrada</button>
-      <button type="button" id="btnExportPackage" class="btn-tool">📦 Exportar .motoatlas.json</button>
-      <label class="btn-tool file-btn">
-        📂 Importar .json
-        <input type="file" id="importJsonInput" accept=".json" hidden />
-      </label>
-    </div>
-  </nav>
+    function haversineKm([lat1, lon1], [lat2, lon2]) {
+      const R = 6371;
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLon = ((lon2 - lon1) * Math.PI) / 180;
+      const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
 
-  <!-- NAVEGAÇÃO DE SEPARADORES -->
-  <div class="studio-tabs">
-    <button type="button" class="tab-btn active" data-tab="tab-planner">🗺️ Roteiro & Waypoints</button>
-    <button type="button" class="tab-btn" data-tab="tab-roadbook">📖 Roadbook A4 (Impressão)</button>
-    <button type="button" class="tab-btn" data-tab="tab-expenses">⛽ Combustível & Despesas</button>
-  </div>
+    function App() {
+      const [supaUrl, setSupaUrl] = useState(() => localStorage.getItem('ma_supa_url') || DEFAULT_SUPABASE_URL);
+      const [supaKey, setSupaKey] = useState(() => localStorage.getItem('ma_supa_key') || DEFAULT_SUPABASE_ANON_KEY);
+      const [supabase, setSupabase] = useState(null);
 
-  <!-- TAB 1: ROTEIRO & WAYPOINTS -->
-  <main id="tab-planner" class="tab-panel active">
-    <div class="planner-layout">
-      <!-- COLUNA ESQUERDA: METADADOS & WAYPOINTS -->
-      <section class="panel-card">
-        <h2>📋 Ficha da Viagem</h2>
-        <div class="form-grid-2">
-          <label>
-            Código Curto (Sync Telemóvel)
-            <input type="text" id="inpTripCode" placeholder="ANDALUZIA-26" />
-          </label>
-          <label>
-            Perfil da Viagem
-            <select id="inpProfile">
-              <option value="moto">🏍️ Expedição Mota</option>
-              <option value="leisure">✈️ Viagem Lazer / Turismo</option>
-            </select>
-          </label>
-        </div>
+      const [session, setSession] = useState(null);
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [trips, setTrips] = useState([]);
+      const [selectedTripId, setSelectedTripId] = useState('');
+      const [activeTab, setActiveTab] = useState('stages');
 
-        <label style="margin-top:0.55rem;">
-          Título da Viagem
-          <input type="text" id="inpTripTitle" placeholder="Ex: Expedição Andaluzia & Sul Ibérico" />
-        </label>
+      useEffect(() => {
+        if (supaUrl && supaKey) {
+          try {
+            const client = window.supabase.createClient(supaUrl, supaKey);
+            setSupabase(client);
+          } catch (e) {
+            console.error("Erro ao iniciar Supabase:", e);
+          }
+        }
+      }, [supaUrl, supaKey]);
 
-        <label style="margin-top:0.55rem;">
-          Subtítulo / Etapa Atual
-          <input type="text" id="inpStageSubtitle" placeholder="Ex: Etapa 1: Lisboa → Córdoba" />
-        </label>
+      useEffect(() => {
+        if (!supabase) return;
+        supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+        return () => subscription.unsubscribe();
+      }, [supabase]);
 
-        <div class="form-grid-3" style="margin-top:0.55rem;">
-          <label>
-            Odómetro Atual (km)
-            <input type="number" id="inpOdometer" step="1" />
-          </label>
-          <label>
-            Depósito (Litros)
-            <input type="number" id="inpTank" step="0.1" />
-          </label>
-          <label>
-            Consumo Médio (L/100)
-            <input type="number" id="inpAvgCons" step="0.1" />
-          </label>
-        </div>
+      useEffect(() => {
+        if (session && supabase) loadTrips();
+      }, [session, supabase]);
 
-        <hr class="divider" />
+      function saveConfig(e) {
+        e.preventDefault();
+        localStorage.setItem('ma_supa_url', supaUrl.trim());
+        localStorage.setItem('ma_supa_key', supaKey.trim());
+        setSupabase(window.supabase.createClient(supaUrl.trim(), supaKey.trim()));
+      }
 
-        <div class="section-head">
-          <h2>📍 Pontos de Passagem (Waypoints)</h2>
-          <button type="button" id="btnAddWp" class="btn-small primary">➕ Adicionar Ponto</button>
-        </div>
+      function resetConfig() {
+        localStorage.removeItem('ma_supa_url');
+        localStorage.removeItem('ma_supa_key');
+        setSupaUrl('');
+        setSupaKey('');
+        setSupabase(null);
+        setSession(null);
+      }
 
-        <div class="wp-editor-list" id="wpEditorList"></div>
-      </section>
+      async function loadTrips() {
+        const { data } = await supabase.from('trips').select('*').order('created_at', { ascending: false });
+        if (data) {
+          setTrips(data);
+          if (data.length > 0 && !selectedTripId) setSelectedTripId(data[0].id);
+        }
+      }
 
-      <!-- COLUNA DIREITA: MAPA INTERATIVO & IMPORTAÇÃO GPX -->
-      <section class="panel-card map-panel">
-        <div class="section-head">
-          <h2>🧭 Mapa da Rota</h2>
-          <div class="map-tools">
-            <label class="btn-small">
-              🗺️ Importar GPX
-              <input type="file" id="gpxFileInput" accept=".gpx" hidden />
-            </label>
-            <button type="button" id="btnFitMap" class="btn-small">🎯 Centrar</button>
+      async function handleLogin(e) {
+        e.preventDefault();
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) alert('Erro de login: ' + error.message);
+      }
+
+      async function handleCreateTrip() {
+        const title = prompt('Nome da nova viagem (ex: Caminhos do Sul 2026):');
+        if (!title) return;
+        const { data, error } = await supabase.from('trips').insert([{
+          user_id: session.user.id,
+          title,
+          trip_type: 'motorcycle',
+          status: 'planning'
+        }]).select().single();
+        if (error) alert(error.message);
+        else {
+          setTrips([data, ...trips]);
+          setSelectedTripId(data.id);
+        }
+      }
+
+      // Ecrã 0: Ligação inicial ao Supabase (guardada no navegador sem precisar editar código)
+      if (!supabase) {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-6">
+            <form onSubmit={saveConfig} className="bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-md space-y-4">
+              <h1 className="text-2xl font-bold text-amber-500">MOTOATLAS STUDIO</h1>
+              <p className="text-xs text-slate-400">Configuração única de ligação ao teu projeto Supabase</p>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Supabase Project URL</label>
+                <input type="url" required placeholder="https://xxxxxx.supabase.co" value={supaUrl} onChange={e => setSupaUrl(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm font-mono" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Supabase Anon Public Key</label>
+                <input type="text" required placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." value={supaKey} onChange={e => setSupaKey(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm font-mono" />
+              </div>
+              <button type="submit" className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold py-2.5 rounded-lg text-sm">
+                Ligar ao Supabase
+              </button>
+            </form>
           </div>
-        </div>
-        <div id="studio-map"></div>
-        <p class="hint-text">Dica: Clica diretamente no mapa para adicionar um novo waypoint na coordenada selecionada.</p>
-      </section>
-    </div>
-  </main>
+        );
+      }
 
-  <!-- TAB 2: ROADBOOK A4 -->
-  <section id="tab-roadbook" class="tab-panel">
-    <div class="panel-card">
-      <div class="section-head">
-        <h2>📖 Pré-visualização de Roadbook A4</h2>
-        <button type="button" onclick="window.print()" class="btn-tool primary">🖨️ Imprimir / Guardar PDF A4</button>
-      </div>
-      <div id="roadbookPrintSheet" class="a4-sheet"></div>
-    </div>
-  </section>
+      // Ecrã 1: Autenticação do Utilizador
+      if (!session) {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-6">
+            <form onSubmit={handleLogin} className="bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-md space-y-4">
+              <div className="flex justify-between items-center">
+                <h1 className="text-2xl font-bold text-amber-500">MOTOATLAS STUDIO</h1>
+                <button type="button" onClick={resetConfig} className="text-[11px] text-slate-500 hover:text-amber-400">Alterar API</button>
+              </div>
+              <p className="text-xs text-slate-400">Inicia sessão com o utilizador criado no Supabase</p>
+              <input type="email" required placeholder="Email" value={email} onChange={e => setEmail(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm" />
+              <input type="password" required placeholder="Password" value={password} onChange={e => setPassword(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm" />
+              <button type="submit" className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold py-2.5 rounded-lg text-sm">
+                Entrar no Studio
+              </button>
+            </form>
+          </div>
+        );
+      }
 
-  <!-- TAB 3: DESPESAS & TELEMETRIA DE COMBUSTÍVEL -->
-  <section id="tab-expenses" class="tab-panel">
-    <div class="planner-layout">
-      <section class="panel-card">
-        <h2>➕ Registar Despesa / Abastecimento</h2>
-        <form id="studioExpenseForm" class="stack-form">
-          <div class="form-grid-2">
-            <label>
-              Categoria
-              <select id="stExpCat">
-                <option value="Combustível">⛽ Combustível</option>
-                <option value="Alimentação">🍴 Alimentação</option>
-                <option value="Alojamento">🏨 Alojamento</option>
-                <option value="Portagem">🛣️ Portagem</option>
-                <option value="Outro">🧾 Outro</option>
+      return (
+        <div className="max-w-7xl mx-auto p-6 space-y-6">
+          <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-xl font-bold text-amber-500">MOTOATLAS STUDIO</h1>
+              <select value={selectedTripId} onChange={e => setSelectedTripId(e.target.value)}
+                className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm">
+                {trips.length === 0 && <option value="">Sem viagens criadas</option>}
+                {trips.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
               </select>
-            </label>
-            <label>
-              Valor (€)
-              <input type="number" step="0.01" id="stExpAmount" required />
-            </label>
+              <button onClick={handleCreateTrip} className="bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium">
+                + Nova Viagem
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setActiveTab('stages')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'stages' ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-slate-300'}`}>
+                1. Etapas & GPX
+              </button>
+              <button onClick={() => setActiveTab('cultural')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'cultural' ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-slate-300'}`}>
+                2. Fichas Culturais (IA)
+              </button>
+              <button onClick={() => supabase.auth.signOut()} className="text-xs text-slate-400 hover:text-red-400 ml-2">
+                Sair
+              </button>
+            </div>
+          </header>
+
+          {!selectedTripId ? (
+            <div className="bg-slate-900 p-8 rounded-xl border border-slate-800 text-center space-y-3">
+              <p className="text-slate-300">Ainda não tens nenhuma viagem criada.</p>
+              <button onClick={handleCreateTrip} className="bg-amber-500 text-slate-950 font-medium px-4 py-2 rounded-lg text-sm">
+                Criar Primeira Viagem
+              </button>
+            </div>
+          ) : activeTab === 'stages' ? (
+            <StageBuilder tripId={selectedTripId} supabase={supabase} />
+          ) : (
+            <CulturalStudio tripId={selectedTripId} supabase={supabase} />
+          )}
+        </div>
+      );
+    }
+
+    function StageBuilder({ tripId, supabase }) {
+      const mapRef = useRef(null);
+      const mapInstance = useRef(null);
+      const layerGroup = useRef(null);
+      const [activeTool, setActiveTool] = useState('fuel');
+      const activeToolRef = useRef('fuel');
+      const [routeCoords, setRouteCoords] = useState([]);
+      const routeCoordsRef = useRef([]);
+      const [waypoints, setWaypoints] = useState([]);
+      const [saving, setSaving] = useState(false);
+      const [form, setForm] = useState({ day_number: 1, stage_date: '', title: '', origin_name: '', destination_name: '', estimated_distance_km: 0, estimated_duration_minutes: 0, traffic_zbe_alerts: '' });
+
+      useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
+      useEffect(() => { routeCoordsRef.current = routeCoords; }, [routeCoords]);
+
+      useEffect(() => {
+        if (mapInstance.current) return;
+        const map = L.map(mapRef.current).setView([38.75, -8.5], 6);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap &copy; CARTO' }).addTo(map);
+        layerGroup.current = L.layerGroup().addTo(map);
+
+        map.on('click', (e) => {
+          const tool = activeToolRef.current;
+          const coords = routeCoordsRef.current;
+          let kmFromStart = 0;
+          if (coords.length > 0) {
+            let minDist = Infinity, closestIdx = 0;
+            coords.forEach((pt, idx) => {
+              const d = haversineKm(pt, [e.latlng.lat, e.latlng.lng]);
+              if (d < minDist) { minDist = d; closestIdx = idx; }
+            });
+            for (let i = 1; i <= closestIdx; i++) kmFromStart += haversineKm(coords[i - 1], coords[i]);
+          }
+          setWaypoints(prev => [...prev, {
+            id: crypto.randomUUID(),
+            name: `${WAYPOINT_CONFIG[tool].label} #${prev.length + 1}`,
+            waypoint_type: tool,
+            latitude: e.latlng.lat,
+            longitude: e.latlng.lng,
+            km_from_start: Math.round(kmFromStart * 10) / 10,
+            notes: ''
+          }].sort((a, b) => a.km_from_start - b.km_from_start));
+        });
+
+        mapInstance.current = map;
+      }, []);
+
+      useEffect(() => {
+        if (!layerGroup.current) return;
+        layerGroup.current.clearLayers();
+        if (routeCoords.length > 0) {
+          const poly = L.polyline(routeCoords, { color: '#f59e0b', weight: 4 }).addTo(layerGroup.current);
+          mapInstance.current.fitBounds(poly.getBounds(), { padding: [30, 30] });
+        }
+        waypoints.forEach(wp => {
+          const cfg = WAYPOINT_CONFIG[wp.waypoint_type];
+          const icon = L.divIcon({
+            className: '',
+            html: `<div style="background:${cfg.color};width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #0f172a;">${cfg.icon}</div>`,
+            iconSize: [28, 28], iconAnchor: [14, 14]
+          });
+          L.marker([wp.latitude, wp.longitude], { icon }).bindPopup(`<b>${wp.name}</b><br>km ${wp.km_from_start}`).addTo(layerGroup.current);
+        });
+      }, [routeCoords, waypoints]);
+
+      function handleGpx(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const xml = new DOMParser().parseFromString(ev.target.result, 'text/xml');
+          const pts = Array.from(xml.querySelectorAll('trkpt, rtept')).map(p => [parseFloat(p.getAttribute('lat')), parseFloat(p.getAttribute('lon'))]);
+          if (pts.length === 0) return alert('GPX sem pontos válidos.');
+          const step = Math.max(1, Math.floor(pts.length / 400));
+          const simplified = pts.filter((_, i) => i % step === 0 || i === pts.length - 1);
+          let totalKm = 0;
+          for (let i = 1; i < pts.length; i++) totalKm += haversineKm(pts[i - 1], pts[i]);
+          const roundedKm = Math.round(totalKm * 10) / 10;
+          setRouteCoords(simplified);
+          setForm(prev => ({ ...prev, title: prev.title || file.name.replace(/\.gpx$/i, ''), estimated_distance_km: roundedKm, estimated_duration_minutes: Math.round((roundedKm / 68) * 60) }));
+        };
+        reader.readAsText(file);
+      }
+
+      async function handleSave(e) {
+        e.preventDefault();
+        setSaving(true);
+        try {
+          const { data: stage, error } = await supabase.from('stages').insert([{
+            trip_id: tripId, ...form,
+            day_number: Number(form.day_number),
+            stage_date: form.stage_date || null,
+            estimated_distance_km: Number(form.estimated_distance_km),
+            estimated_duration_minutes: Number(form.estimated_duration_minutes),
+            route_geometry: routeCoords.length ? routeCoords : null
+          }]).select().single();
+          if (error) throw error;
+          if (waypoints.length > 0) {
+            const { error: wpErr } = await supabase.from('route_waypoints').insert(waypoints.map((w, i) => ({
+              stage_id: stage.id, order_index: i + 1, name: w.name, waypoint_type: w.waypoint_type,
+              latitude: w.latitude, longitude: w.longitude, km_from_start: w.km_from_start, notes: w.notes
+            })));
+            if (wpErr) throw wpErr;
+          }
+          alert('Etapa e waypoints guardados no Supabase!');
+        } catch (err) { alert(err.message); }
+        finally { setSaving(false); }
+      }
+
+      return (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-900 p-6 rounded-xl border border-slate-800">
+          <form onSubmit={handleSave} className="lg:col-span-5 space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <h2 className="text-lg font-semibold">Construtor de Etapa</h2>
+              <label className="cursor-pointer bg-amber-500 text-slate-950 font-medium px-3 py-1.5 rounded-lg text-xs">
+                Importar .GPX
+                <input type="file" accept=".gpx" onChange={handleGpx} className="hidden" />
+              </label>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <input type="number" min="1" required placeholder="Dia" value={form.day_number} onChange={e => setForm({...form, day_number: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+              <input type="date" value={form.stage_date} onChange={e => setForm({...form, stage_date: e.target.value})} className="col-span-2 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <input required placeholder="Título (ex: Etapa 1 - Lisboa a Zafra)" value={form.title} onChange={e => setForm({...form, title: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+            <div className="grid grid-cols-2 gap-3">
+              <input required placeholder="Partida" value={form.origin_name} onChange={e => setForm({...form, origin_name: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+              <input required placeholder="Chegada" value={form.destination_name} onChange={e => setForm({...form, destination_name: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <input type="number" step="0.1" placeholder="Distância (km)" value={form.estimated_distance_km} onChange={e => setForm({...form, estimated_distance_km: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-amber-400 font-mono" />
+              <input type="number" placeholder="Duração (min)" value={form.estimated_duration_minutes} onChange={e => setForm({...form, estimated_duration_minutes: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm font-mono" />
+            </div>
+            <input placeholder="Alertas ZBE / Trânsito" value={form.traffic_zbe_alerts} onChange={e => setForm({...form, traffic_zbe_alerts: e.target.value})} className="w-full bg-slate-950 border border-red-900/50 rounded-lg px-3 py-2 text-sm" />
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {waypoints.map(w => (
+                <div key={w.id} className="bg-slate-950 p-2 rounded border border-slate-800 flex justify-between items-center text-xs">
+                  <span>{WAYPOINT_CONFIG[w.waypoint_type].icon} {w.name} (km {w.km_from_start})</span>
+                  <button type="button" onClick={() => setWaypoints(waypoints.filter(x => x.id !== w.id))} className="text-red-400">✕</button>
+                </div>
+              ))}
+            </div>
+            <button type="submit" disabled={saving} className="w-full bg-emerald-600 hover:bg-emerald-500 py-2.5 rounded-lg text-sm font-medium">
+              {saving ? 'A guardar...' : 'Guardar Etapa'}
+            </button>
+          </form>
+          <div className="lg:col-span-7 space-y-3">
+            <div className="flex flex-wrap gap-2 bg-slate-950 p-2 rounded-lg border border-slate-800">
+              {Object.entries(WAYPOINT_CONFIG).map(([k, cfg]) => (
+                <button key={k} type="button" onClick={() => setActiveTool(k)}
+                  className={`px-2.5 py-1 rounded text-xs ${activeTool === k ? 'bg-amber-500 text-slate-950 font-medium' : 'bg-slate-900 text-slate-300'}`}>
+                  {cfg.icon} {cfg.label}
+                </button>
+              ))}
+            </div>
+            <div ref={mapRef} className="h-[480px] w-full rounded-xl border border-slate-800 z-0"></div>
           </div>
-          <div class="form-grid-3">
-            <label>
-              Litros (L)
-              <input type="number" step="0.01" id="stExpLiters" placeholder="0.0" />
-            </label>
-            <label>
-              Parcial Trip (km)
-              <input type="number" step="0.1" id="stExpTripKm" placeholder="0" />
-            </label>
-            <label>
-              Pagador
-              <select id="stExpPayer">
-                <option value="Condutor">Condutor</option>
-                <option value="Pendura">Pendura</option>
-              </select>
-            </label>
+        </div>
+      );
+    }
+
+    function CulturalStudio({ tripId, supabase }) {
+      const [loadingAI, setLoadingAI] = useState(false);
+      const [saving, setSaving] = useState(false);
+      const [form, setForm] = useState({ name: '', city: '', category: 'monument', scheduled_time: '', location_details: '', classification: '', construction_period: '', dimensions_specs: '', architectural_styles: '', curiosities: '', visitor_tips: '', latitude: null, longitude: null });
+
+      async function handleAI() {
+        if (!form.name || !form.city) return alert('Indica o nome do monumento e a cidade.');
+        setLoadingAI(true);
+        try {
+          const { data, error } = await supabase.functions.invoke('generate-poi-sheet', { body: { poiName: form.name, city: form.city, category: form.category } });
+          if (error) throw error;
+          setForm(prev => ({ ...prev, ...data }));
+        } catch (err) { alert('Erro IA: ' + err.message); }
+        finally { setLoadingAI(false); }
+      }
+
+      async function handleSave(e) {
+        e.preventDefault();
+        setSaving(true);
+        try {
+          const { error } = await supabase.from('pois').insert([{ trip_id: tripId, ...form, scheduled_time: form.scheduled_time || null }]);
+          if (error) throw error;
+          alert('Ficha cultural guardada no Supabase!');
+        } catch (err) { alert(err.message); }
+        finally { setSaving(false); }
+      }
+
+      return (
+        <form onSubmit={handleSave} className="bg-slate-900 p-6 rounded-xl border border-slate-800 space-y-4">
+          <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+            <h2 className="text-lg font-semibold">Nova Ficha Técnica Cultural</h2>
+            <button type="button" onClick={handleAI} disabled={loadingAI} className="bg-amber-500 text-slate-950 font-medium px-4 py-2 rounded-lg text-sm">
+              {loadingAI ? 'A gerar com Gemini...' : '✨ Preencher Ficha com IA'}
+            </button>
           </div>
-          <label>
-            Descrição / Local
-            <input type="text" id="stExpNote" placeholder="Ex: Posto Galp Évora" />
-          </label>
-          <button type="submit" class="btn-tool primary">💾 Adicionar Registo</button>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <input required placeholder="Monumento / Local" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="md:col-span-2 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+            <input required placeholder="Cidade" value={form.city} onChange={e => setForm({...form, city: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+            <input type="time" value={form.scheduled_time} onChange={e => setForm({...form, scheduled_time: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input placeholder="Localização" value={form.location_details} onChange={e => setForm({...form, location_details: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+            <input placeholder="Classificação Patrimonial" value={form.classification} onChange={e => setForm({...form, classification: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+            <input placeholder="Período de Construção" value={form.construction_period} onChange={e => setForm({...form, construction_period: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+            <input placeholder="Estilos Arquitetónicos" value={form.architectural_styles} onChange={e => setForm({...form, architectural_styles: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <input placeholder="Dimensões & Especificações" value={form.dimensions_specs} onChange={e => setForm({...form, dimensions_specs: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <textarea rows={3} placeholder="Curiosidades" value={form.curiosities} onChange={e => setForm({...form, curiosities: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+            <textarea rows={3} placeholder="Dicas de Visita" value={form.visitor_tips} onChange={e => setForm({...form, visitor_tips: e.target.value})} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <button type="submit" disabled={saving} className="bg-emerald-600 hover:bg-emerald-500 px-5 py-2 rounded-lg text-sm font-medium">
+            {saving ? 'A guardar...' : 'Guardar Ficha Cultural'}
+          </button>
         </form>
-      </section>
+      );
+    }
 
-      <section class="panel-card">
-        <div class="section-head">
-          <h2>🧾 Histórico Consolidado da Viagem</h2>
-          <strong id="stTotalExpenses" class="accent-text">0.00 €</strong>
-        </div>
-        <div id="stStatsSummary" class="stats-bar"></div>
-        <ul id="stExpenseList" class="expense-list"></ul>
-      </section>
-    </div>
-  </section>
-
-  <!-- MODAL DE CONFIGURAÇÃO SUPABASE (HÍBRIDO: DIALOG + FALLBACK CSS PARA MÁXIMA COMPATIBILIDADE) -->
-  <div id="supabaseModalOverlay" class="modal-backdrop" hidden>
-    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="sbModalTitle">
-      <div class="modal-head">
-        <h2 id="sbModalTitle">☁️ Configurar Ligação Supabase</h2>
-        <button type="button" id="btnCloseSbModal" class="btn-close-modal" onclick="window.closeSupabaseModal()">✕</button>
-      </div>
-
-      <p class="modal-desc">
-        Insere o <strong>Project URL</strong> e a <strong>Anon Public Key</strong> do teu projeto Supabase para sincronizar viagens entre o PC e o <strong>MOTOATLAS Road</strong>.
-      </p>
-
-      <form id="sbConfigForm" class="stack-form">
-        <label>
-          Project URL
-          <input type="url" id="sbUrlInput" placeholder="https://xxxxxxxxxxxx.supabase.co" required />
-        </label>
-
-        <label>
-          Anon Public Key
-          <input type="password" id="sbKeyInput" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." required />
-        </label>
-
-        <div id="sbTestResult" class="sb-feedback"></div>
-
-        <div class="modal-actions">
-          <button type="button" id="btnTestSbOnly" class="btn-tool">🔍 Testar Ligação</button>
-          <button type="submit" class="btn-tool primary">💾 Guardar & Testar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- TOAST DE NOTIFICAÇÃO -->
-  <div id="studioToast" class="studio-toast" hidden></div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="app.js"></script>
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
 </body>
 </html>
