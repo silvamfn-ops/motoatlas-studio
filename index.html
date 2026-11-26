@@ -7,6 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -18,10 +19,6 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    // =========================================================================
-    // CONFIGURAÇÃO DO SUPABASE
-    // Cola aqui o URL e a Anon Key do teu projeto (ou guarda no ecrã de setup)
-    // =========================================================================
     const DEFAULT_SUPABASE_URL = "";
     const DEFAULT_SUPABASE_ANON_KEY = "";
 
@@ -42,6 +39,49 @@
       return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 
+    // Extrai coordenadas [lat, lng] e marcadores <Placemark> de texto KML (Google My Maps / KMZ)
+    function parseKmlString(kmlText) {
+      const xml = new DOMParser().parseFromString(kmlText, 'text/xml');
+      const coordsNodes = Array.from(xml.querySelectorAll('LineString coordinates'));
+      let routePoints = [];
+
+      coordsNodes.forEach(node => {
+        const raw = node.textContent.trim();
+        const pairs = raw.split(/\s+/);
+        pairs.forEach(pair => {
+          const parts = pair.split(',');
+          if (parts.length >= 2) {
+            const lon = parseFloat(parts[0]);
+            const lat = parseFloat(parts[1]);
+            if (!isNaN(lat) && !isNaN(lon)) {
+              routePoints.push([lat, lon]);
+            }
+          }
+        });
+      });
+
+      // Extrair também pontos de interesse (<Point>) incluídos no KMZ/KML
+      const placemarks = Array.from(xml.querySelectorAll('Placemark'));
+      const extractedPins = [];
+      placemarks.forEach(pm => {
+        const pointNode = pm.querySelector('Point coordinates');
+        if (pointNode) {
+          const name = pm.querySelector('name')?.textContent?.trim() || 'Ponto KMZ';
+          const desc = pm.querySelector('description')?.textContent?.trim() || '';
+          const parts = pointNode.textContent.trim().split(',');
+          if (parts.length >= 2) {
+            const lon = parseFloat(parts[0]);
+            const lat = parseFloat(parts[1]);
+            if (!isNaN(lat) && !isNaN(lon)) {
+              extractedPins.push({ name, notes: desc.replace(/<[^>]*>?/gm, '').slice(0, 120), latitude: lat, longitude: lon });
+            }
+          }
+        }
+      });
+
+      return { routePoints, extractedPins };
+    }
+
     function App() {
       const [supaUrl, setSupaUrl] = useState(() => localStorage.getItem('ma_supa_url') || DEFAULT_SUPABASE_URL);
       const [supaKey, setSupaKey] = useState(() => localStorage.getItem('ma_supa_key') || DEFAULT_SUPABASE_ANON_KEY);
@@ -56,12 +96,7 @@
 
       useEffect(() => {
         if (supaUrl && supaKey) {
-          try {
-            const client = window.supabase.createClient(supaUrl, supaKey);
-            setSupabase(client);
-          } catch (e) {
-            console.error("Erro ao iniciar Supabase:", e);
-          }
+          setSupabase(window.supabase.createClient(supaUrl, supaKey));
         }
       }, [supaUrl, supaKey]);
 
@@ -122,23 +157,16 @@
         }
       }
 
-      // Ecrã 0: Ligação inicial ao Supabase (guardada no navegador sem precisar editar código)
       if (!supabase) {
         return (
           <div className="min-h-screen flex items-center justify-center p-6">
             <form onSubmit={saveConfig} className="bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-md space-y-4">
               <h1 className="text-2xl font-bold text-amber-500">MOTOATLAS STUDIO</h1>
               <p className="text-xs text-slate-400">Configuração única de ligação ao teu projeto Supabase</p>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Supabase Project URL</label>
-                <input type="url" required placeholder="https://xxxxxx.supabase.co" value={supaUrl} onChange={e => setSupaUrl(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm font-mono" />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Supabase Anon Public Key</label>
-                <input type="text" required placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." value={supaKey} onChange={e => setSupaKey(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm font-mono" />
-              </div>
+              <input type="url" required placeholder="https://xxxxxx.supabase.co" value={supaUrl} onChange={e => setSupaUrl(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm font-mono" />
+              <input type="text" required placeholder="Supabase Anon Public Key" value={supaKey} onChange={e => setSupaKey(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm font-mono" />
               <button type="submit" className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold py-2.5 rounded-lg text-sm">
                 Ligar ao Supabase
               </button>
@@ -147,7 +175,6 @@
         );
       }
 
-      // Ecrã 1: Autenticação do Utilizador
       if (!session) {
         return (
           <div className="min-h-screen flex items-center justify-center p-6">
@@ -156,7 +183,6 @@
                 <h1 className="text-2xl font-bold text-amber-500">MOTOATLAS STUDIO</h1>
                 <button type="button" onClick={resetConfig} className="text-[11px] text-slate-500 hover:text-amber-400">Alterar API</button>
               </div>
-              <p className="text-xs text-slate-400">Inicia sessão com o utilizador criado no Supabase</p>
               <input type="email" required placeholder="Email" value={email} onChange={e => setEmail(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm" />
               <input type="password" required placeholder="Password" value={password} onChange={e => setPassword(e.target.value)}
@@ -183,14 +209,18 @@
                 + Nova Viagem
               </button>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => setActiveTab('stages')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'stages' ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-slate-300'}`}>
-                1. Etapas & GPX
+                className={`px-3.5 py-2 rounded-lg text-sm font-medium ${activeTab === 'stages' ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-slate-300'}`}>
+                1. Etapas (GPX / KMZ)
               </button>
               <button onClick={() => setActiveTab('cultural')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'cultural' ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-slate-300'}`}>
+                className={`px-3.5 py-2 rounded-lg text-sm font-medium ${activeTab === 'cultural' ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-slate-300'}`}>
                 2. Fichas Culturais (IA)
+              </button>
+              <button onClick={() => setActiveTab('vault')}
+                className={`px-3.5 py-2 rounded-lg text-sm font-medium ${activeTab === 'vault' ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-slate-300'}`}>
+                3. Bilhetes & Hotéis
               </button>
               <button onClick={() => supabase.auth.signOut()} className="text-xs text-slate-400 hover:text-red-400 ml-2">
                 Sair
@@ -207,9 +237,229 @@
             </div>
           ) : activeTab === 'stages' ? (
             <StageBuilder tripId={selectedTripId} supabase={supabase} />
-          ) : (
+          ) : activeTab === 'cultural' ? (
             <CulturalStudio tripId={selectedTripId} supabase={supabase} />
+          ) : (
+            <VaultAndStaysStudio tripId={selectedTripId} userId={session.user.id} supabase={supabase} />
           )}
+        </div>
+      );
+    }
+
+    function VaultAndStaysStudio({ tripId, userId, supabase }) {
+      const [pois, setPois] = useState([]);
+      const [docs, setDocs] = useState([]);
+      const [stays, setStays] = useState([]);
+      const [savingDoc, setSavingDoc] = useState(false);
+      const [savingStay, setSavingStay] = useState(false);
+      const [file, setFile] = useState(null);
+
+      const [docForm, setDocForm] = useState({
+        title: '', doc_type: 'ticket', poi_id: '', qr_code_payload: '', valid_date: '', notes: ''
+      });
+
+      const [stayForm, setStayForm] = useState({
+        name: '', address: '', check_in_date: '', check_out_date: '', booking_reference: '', has_private_parking: true, parking_notes: '', total_cost: ''
+      });
+
+      useEffect(() => { loadData(); }, [tripId]);
+
+      async function loadData() {
+        const [pRes, dRes, sRes] = await Promise.all([
+          supabase.from('pois').select('id, name, city').eq('trip_id', tripId),
+          supabase.from('vault_documents').select('*').eq('trip_id', tripId).order('created_at', { ascending: false }),
+          supabase.from('accommodations').select('*').eq('trip_id', tripId).order('check_in_date', { ascending: true })
+        ]);
+        setPois(pRes.data || []);
+        setDocs(dRes.data || []);
+        setStays(sRes.data || []);
+      }
+
+      async function handleSaveDocument(e) {
+        e.preventDefault();
+        if (!file && !docForm.qr_code_payload) {
+          return alert('Anexa um ficheiro (PDF/Imagem) ou introduz o texto/código do QR Code.');
+        }
+        setSavingDoc(true);
+        try {
+          let storagePath = '';
+          let mimeType = null;
+
+          if (file) {
+            const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+            storagePath = `${userId}/${tripId}/${safeName}`;
+            mimeType = file.type;
+            const { error: upErr } = await supabase.storage.from('mototour-vault').upload(storagePath, file);
+            if (upErr) throw upErr;
+          }
+
+          const { error: dbErr } = await supabase.from('vault_documents').insert([{
+            trip_id: tripId,
+            poi_id: docForm.poi_id || null,
+            title: docForm.title,
+            doc_type: docForm.doc_type,
+            storage_path: storagePath,
+            file_mime_type: mimeType,
+            qr_code_payload: docForm.qr_code_payload || null,
+            valid_date: docForm.valid_date || null,
+            notes: docForm.notes || null
+          }]);
+          if (dbErr) throw dbErr;
+
+          setDocForm({ title: '', doc_type: 'ticket', poi_id: '', qr_code_payload: '', valid_date: '', notes: '' });
+          setFile(null);
+          loadData();
+          alert('Bilhete / Documento guardado no Cofre!');
+        } catch (err) {
+          alert('Erro ao guardar documento: ' + err.message);
+        } finally {
+          setSavingDoc(false);
+        }
+      }
+
+      async function handleDeleteDoc(doc) {
+        if (!confirm(`Remover "${doc.title}"?`)) return;
+        if (doc.storage_path) await supabase.storage.from('mototour-vault').remove([doc.storage_path]);
+        await supabase.from('vault_documents').delete().eq('id', doc.id);
+        loadData();
+      }
+
+      async function handleSaveStay(e) {
+        e.preventDefault();
+        setSavingStay(true);
+        try {
+          const { error } = await supabase.from('accommodations').insert([{
+            trip_id: tripId,
+            name: stayForm.name,
+            address: stayForm.address || null,
+            check_in_date: stayForm.check_in_date || null,
+            check_out_date: stayForm.check_out_date || null,
+            booking_reference: stayForm.booking_reference || null,
+            has_private_parking: stayForm.has_private_parking,
+            parking_notes: stayForm.parking_notes || null,
+            total_cost: stayForm.total_cost ? Number(stayForm.total_cost) : null
+          }]);
+          if (error) throw error;
+          setStayForm({ name: '', address: '', check_in_date: '', check_out_date: '', booking_reference: '', has_private_parking: true, parking_notes: '', total_cost: '' });
+          loadData();
+          alert('Alojamento registado!');
+        } catch (err) {
+          alert('Erro ao guardar hotel: ' + err.message);
+        } finally {
+          setSavingStay(false);
+        }
+      }
+
+      return (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 space-y-5">
+            <div className="border-b border-slate-800 pb-3">
+              <h2 className="text-lg font-semibold">🎟️ Cofre de Bilhetes & Documentos</h2>
+              <p className="text-xs text-slate-400">Sincroniza offline com o MotoAtlas Tour (Android)</p>
+            </div>
+            <form onSubmit={handleSaveDocument} className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <input required placeholder="Título (ex: Alhambra 10h30)" value={docForm.title} onChange={e => setDocForm({...docForm, title: e.target.value})}
+                  className="col-span-2 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+                <select value={docForm.doc_type} onChange={e => setDocForm({...docForm, doc_type: e.target.value})}
+                  className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-xs">
+                  <option value="ticket">🎟️ Bilhete</option>
+                  <option value="hotel_voucher">🏨 Voucher Hotel</option>
+                  <option value="insurance">🛡️ Seguro / Carta Verde</option>
+                  <option value="vehicle_doc">🏍️ Doc. Mota</option>
+                  <option value="personal_id">🪪 Identificação</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <select value={docForm.poi_id} onChange={e => setDocForm({...docForm, poi_id: e.target.value})}
+                  className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs">
+                  <option value="">Associar a Monumento (Opcional)</option>
+                  {pois.map(p => <option key={p.id} value={p.id}>{p.name} ({p.city})</option>)}
+                </select>
+                <input type="date" value={docForm.valid_date} onChange={e => setDocForm({...docForm, valid_date: e.target.value})}
+                  className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Código / Texto para QR Offline (Opcional)</label>
+                <input placeholder="Cola o código do bilhete ou referência para gerar QR no telemóvel" value={docForm.qr_code_payload}
+                  onChange={e => setDocForm({...docForm, qr_code_payload: e.target.value})}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-amber-400" />
+              </div>
+              <div className="flex items-center justify-between gap-3 bg-slate-950 p-3 rounded-lg border border-slate-800">
+                <span className="text-xs text-slate-400 truncate">{file ? file.name : 'Anexar PDF ou Imagem (Opcional)'}</span>
+                <label className="cursor-pointer bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium shrink-0">
+                  Escolher Ficheiro
+                  <input type="file" accept=".pdf,image/*" onChange={e => setFile(e.target.files?.[0] || null)} className="hidden" />
+                </label>
+              </div>
+              <button type="submit" disabled={savingDoc} className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold py-2.5 rounded-lg text-sm">
+                {savingDoc ? 'A enviar para o cofre...' : 'Guardar no Cofre'}
+              </button>
+            </form>
+            <div className="space-y-2 pt-3 border-t border-slate-800 max-h-60 overflow-y-auto">
+              {docs.map(d => (
+                <div key={d.id} className="bg-slate-950 p-3 rounded-lg border border-slate-800 flex justify-between items-center text-xs">
+                  <div>
+                    <div className="font-semibold text-slate-100">{d.title}</div>
+                    <div className="text-slate-400 text-[11px]">{d.qr_code_payload ? 'QR Code ativo' : ''} {d.storage_path ? '• PDF/Imagem anexado' : ''}</div>
+                  </div>
+                  <button onClick={() => handleDeleteDoc(d)} className="text-slate-500 hover:text-red-400 px-2">✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 space-y-5">
+            <div className="border-b border-slate-800 pb-3">
+              <h2 className="text-lg font-semibold">🏨 Alojamentos & Pernoitas</h2>
+              <p className="text-xs text-slate-400">Reservas e estacionamento sincronizados com o Tour</p>
+            </div>
+            <form onSubmit={handleSaveStay} className="space-y-3">
+              <input required placeholder="Nome do Hotel / Alojamento *" value={stayForm.name} onChange={e => setStayForm({...stayForm, name: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+              <input placeholder="Morada completa" value={stayForm.address} onChange={e => setStayForm({...stayForm, address: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">Check-in</label>
+                  <input type="date" value={stayForm.check_in_date} onChange={e => setStayForm({...stayForm, check_in_date: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">Check-out</label>
+                  <input type="date" value={stayForm.check_out_date} onChange={e => setStayForm({...stayForm, check_out_date: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <input placeholder="Ref. Reserva (ex: Booking #1234)" value={stayForm.booking_reference} onChange={e => setStayForm({...stayForm, booking_reference: e.target.value})}
+                  className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono" />
+                <input type="number" step="0.01" placeholder="Custo Total (€)" value={stayForm.total_cost} onChange={e => setStayForm({...stayForm, total_cost: e.target.value})}
+                  className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono" />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <input type="checkbox" checked={stayForm.has_private_parking} onChange={e => setStayForm({...stayForm, has_private_parking: e.target.checked})} />
+                Tem garagem / estacionamento privativo para mota
+              </label>
+              <input placeholder="Notas de estacionamento (ex: Garagem subterrânea incluída)" value={stayForm.parking_notes}
+                onChange={e => setStayForm({...stayForm, parking_notes: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs" />
+              <button type="submit" disabled={savingStay} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg text-sm">
+                {savingStay ? 'A guardar...' : 'Guardar Alojamento'}
+              </button>
+            </form>
+            <div className="space-y-2 pt-3 border-t border-slate-800 max-h-60 overflow-y-auto">
+              {stays.map(s => (
+                <div key={s.id} className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs flex justify-between items-center">
+                  <div>
+                    <div className="font-semibold text-slate-100">{s.name}</div>
+                    <div className="text-slate-400 text-[11px]">{s.check_in_date} → {s.check_out_date} {s.booking_reference ? `• Ref: ${s.booking_reference}` : ''}</div>
+                  </div>
+                  {s.has_private_parking && <span className="text-emerald-400 font-bold">🅿️ Mota</span>}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       );
     }
@@ -232,7 +482,12 @@
       useEffect(() => {
         if (mapInstance.current) return;
         const map = L.map(mapRef.current).setView([38.75, -8.5], 6);
-       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
+        // Mosaicos OpenStreetMap oficiais e gratuitos (sem necessidade de API Key)
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        layerGroup.current = L.layerGroup().addTo(map);
+
         map.on('click', (e) => {
           const tool = activeToolRef.current;
           const coords = routeCoordsRef.current;
@@ -263,37 +518,101 @@
         if (!layerGroup.current) return;
         layerGroup.current.clearLayers();
         if (routeCoords.length > 0) {
-          const poly = L.polyline(routeCoords, { color: '#f59e0b', weight: 4 }).addTo(layerGroup.current);
+          const poly = L.polyline(routeCoords, { color: '#ea580c', weight: 5, opacity: 0.9 }).addTo(layerGroup.current);
           mapInstance.current.fitBounds(poly.getBounds(), { padding: [30, 30] });
         }
         waypoints.forEach(wp => {
           const cfg = WAYPOINT_CONFIG[wp.waypoint_type];
           const icon = L.divIcon({
             className: '',
-            html: `<div style="background:${cfg.color};width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #0f172a;">${cfg.icon}</div>`,
+            html: `<div style="background:${cfg.color};width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #0f172a;box-shadow:0 2px 6px rgba(0,0,0,0.5);">${cfg.icon}</div>`,
             iconSize: [28, 28], iconAnchor: [14, 14]
           });
           L.marker([wp.latitude, wp.longitude], { icon }).bindPopup(`<b>${wp.name}</b><br>km ${wp.km_from_start}`).addTo(layerGroup.current);
         });
       }, [routeCoords, waypoints]);
 
-      function handleGpx(e) {
+      function applyExtractedRoute(pts, fileName, extractedPins = []) {
+        if (pts.length === 0) return alert('O ficheiro não contém um traçado de rota válido.');
+        const step = Math.max(1, Math.floor(pts.length / 400));
+        const simplified = pts.filter((_, i) => i % step === 0 || i === pts.length - 1);
+        let totalKm = 0;
+        for (let i = 1; i < pts.length; i++) totalKm += haversineKm(pts[i - 1], pts[i]);
+        const roundedKm = Math.round(totalKm * 10) / 10;
+
+        setRouteCoords(simplified);
+        setForm(prev => ({
+          ...prev,
+          title: prev.title || fileName.replace(/\.(gpx|kmz|kml)$/i, ''),
+          estimated_distance_km: roundedKm,
+          estimated_duration_minutes: Math.round((roundedKm / 68) * 60)
+        }));
+
+        // Se o ficheiro KMZ/KML contiver marcadores (Pins), converte-os automaticamente em Waypoints
+        if (extractedPins.length > 0) {
+          const newWps = extractedPins.map(pin => {
+            let kmFromStart = 0;
+            let minDist = Infinity, closestIdx = 0;
+            simplified.forEach((pt, idx) => {
+              const d = haversineKm(pt, [pin.latitude, pin.longitude]);
+              if (d < minDist) { minDist = d; closestIdx = idx; }
+            });
+            for (let i = 1; i <= closestIdx; i++) kmFromStart += haversineKm(simplified[i - 1], simplified[i]);
+
+            const lowerName = pin.name.toLowerCase();
+            let wpType = 'meeting_point';
+            if (lowerName.includes('gas') || lowerName.includes('combust') || lowerName.includes('repsol') || lowerName.includes('galp') || lowerName.includes('cepsa')) wpType = 'fuel';
+            else if (lowerName.includes('zbe') || lowerName.includes('alerta') || lowerName.includes('radar')) wpType = 'zbe_warning';
+            else if (lowerName.includes('caf') || lowerName.includes('almo') || lowerName.includes('restaurante')) wpType = 'coffee_stop';
+            else if (lowerName.includes('miradouro') || lowerName.includes('vista')) wpType = 'viewpoint';
+
+            return {
+              id: crypto.randomUUID(),
+              name: pin.name,
+              waypoint_type: wpType,
+              latitude: pin.latitude,
+              longitude: pin.longitude,
+              km_from_start: Math.round(kmFromStart * 10) / 10,
+              notes: pin.notes
+            };
+          });
+          setWaypoints(prev => [...prev, ...newWps].sort((a, b) => a.km_from_start - b.km_from_start));
+        }
+      }
+
+      async function handleRouteFileUpload(e) {
         const file = e.target.files?.[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const xml = new DOMParser().parseFromString(ev.target.result, 'text/xml');
-          const pts = Array.from(xml.querySelectorAll('trkpt, rtept')).map(p => [parseFloat(p.getAttribute('lat')), parseFloat(p.getAttribute('lon'))]);
-          if (pts.length === 0) return alert('GPX sem pontos válidos.');
-          const step = Math.max(1, Math.floor(pts.length / 400));
-          const simplified = pts.filter((_, i) => i % step === 0 || i === pts.length - 1);
-          let totalKm = 0;
-          for (let i = 1; i < pts.length; i++) totalKm += haversineKm(pts[i - 1], pts[i]);
-          const roundedKm = Math.round(totalKm * 10) / 10;
-          setRouteCoords(simplified);
-          setForm(prev => ({ ...prev, title: prev.title || file.name.replace(/\.gpx$/i, ''), estimated_distance_km: roundedKm, estimated_duration_minutes: Math.round((roundedKm / 68) * 60) }));
-        };
-        reader.readAsText(file);
+        const lower = file.name.toLowerCase();
+
+        try {
+          if (lower.endsWith('.gpx')) {
+            const text = await file.text();
+            const xml = new DOMParser().parseFromString(text, 'text/xml');
+            const pts = Array.from(xml.querySelectorAll('trkpt, rtept')).map(p => [
+              parseFloat(p.getAttribute('lat')),
+              parseFloat(p.getAttribute('lon'))
+            ]);
+            applyExtractedRoute(pts, file.name);
+          } else if (lower.endsWith('.kml')) {
+            const text = await file.text();
+            const { routePoints, extractedPins } = parseKmlString(text);
+            applyExtractedRoute(routePoints, file.name, extractedPins);
+          } else if (lower.endsWith('.kmz')) {
+            // Descompacta o KMZ em memória com JSZip e lê o doc.kml interno
+            const arrayBuffer = await file.arrayBuffer();
+            const zip = await window.JSZip.loadAsync(arrayBuffer);
+            const kmlFileName = Object.keys(zip.files).find(name => name.toLowerCase().endsWith('.kml'));
+            if (!kmlFileName) return alert('O ficheiro KMZ não contém nenhum mapa KML válido no interior.');
+            const kmlText = await zip.files[kmlFileName].async('text');
+            const { routePoints, extractedPins } = parseKmlString(kmlText);
+            applyExtractedRoute(routePoints, file.name, extractedPins);
+          } else {
+            alert('Formato não suportado. Escolhe um ficheiro .GPX, .KMZ ou .KML.');
+          }
+        } catch (err) {
+          alert('Erro ao ler ficheiro de rota: ' + err.message);
+        }
       }
 
       async function handleSave(e) {
@@ -326,9 +645,9 @@
           <form onSubmit={handleSave} className="lg:col-span-5 space-y-4">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h2 className="text-lg font-semibold">Construtor de Etapa</h2>
-              <label className="cursor-pointer bg-amber-500 text-slate-950 font-medium px-3 py-1.5 rounded-lg text-xs">
-                Importar .GPX
-                <input type="file" accept=".gpx" onChange={handleGpx} className="hidden" />
+              <label className="cursor-pointer bg-amber-500 hover:bg-amber-400 text-slate-950 font-medium px-3 py-1.5 rounded-lg text-xs">
+                Importar GPX / KMZ
+                <input type="file" accept=".gpx,.kmz,.kml" onChange={handleRouteFileUpload} className="hidden" />
               </label>
             </div>
             <div className="grid grid-cols-3 gap-3">
