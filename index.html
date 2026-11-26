@@ -232,9 +232,7 @@
       useEffect(() => {
         if (mapInstance.current) return;
         const map = L.map(mapRef.current).setView([38.75, -8.5], 6);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap &copy; CARTO' }).addTo(map);
-        layerGroup.current = L.layerGroup().addTo(map);
-
+       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
         map.on('click', (e) => {
           const tool = activeToolRef.current;
           const coords = routeCoordsRef.current;
