@@ -4,6 +4,7 @@
   "description": "Planeamento de viagens de mota, etapas GPX/KMZ, fichas culturais e cofre de bilhetes",
   "start_url": "./",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#0B131E",
   "theme_color": "#1E466E",
   "icons": [

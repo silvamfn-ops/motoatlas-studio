@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js';
 let cachedClient = null;
 let cachedConfigKey = '';
 
-// Permite configurar automaticamente um novo PC atraves de um Link Magico (?setup=base64)
 export function applyMagicLinkIfPresent() {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -13,7 +12,6 @@ export function applyMagicLinkIfPresent() {
       if (decoded.url && decoded.key) {
         localStorage.setItem('ma_supa_url', decoded.url.trim());
         localStorage.setItem('ma_supa_key', decoded.key.trim());
-        // Limpa o parametro sensivel da barra de enderecos
         const cleanUrl = window.location.origin + window.location.pathname;
         window.history.replaceState({}, document.title, cleanUrl);
         return true;
