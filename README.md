@@ -1,23 +1,12 @@
-# MotoAtlas Studio (GitHub Pages Ready)
+# MotoAtlas Studio (Versao Web v6 - GitHub Pages)
 
-Repositório pronto a publicar no **GitHub Pages** sem necessidade de build, Node.js ou terminal no computador.
+## Como publicar no GitHub Pages com Deploy Automatico
+1. Cria um repositorio novo no GitHub (ex: `motoatlas-studio`).
+2. Carrega todos os ficheiros deste ZIP para o repositorio (garantindo que a pasta oculta `.github/workflows/deploy.yml` tambem e enviada).
+3. No repositorio do GitHub, vai a **Settings > Pages**.
+4. Em **Build and deployment > Source**, seleciona **GitHub Actions**.
+5. Assim que o workflow terminar (~1 minuto), o Studio fica online em `https://O-TEU-UTILIZADOR.github.io/motoatlas-studio/`.
 
-## Estrutura do Repositório
-- `index.html` — Aplicação completa (Ecrã de configuração Supabase, Login, Seletor de Viagens, Construtor de Etapas com GPX e Mapa Leaflet, e Estúdio Cultural com IA Gemini).
-- `supabase/setup-database.sql` — Script SQL único para criar as 9 tabelas, regras de segurança RLS, view de consumos e bucket privado no Supabase.
-- `supabase/functions/generate-poi-sheet/index.ts` — Código da Edge Function para preencher fichas culturais automaticamente com Gemini.
-
-## Instalação Rápida (3 Passos)
-
-### 1. Publicar no GitHub Pages
-1. Faz upload dos ficheiros deste ZIP para o teu repositório GitHub.
-2. Vai a **Settings** > **Pages**, escolhe a branch `main` (pasta `/root`) e clica em **Save**.
-
-### 2. Configurar a Base de Dados e IA no Supabase
-1. No painel do Supabase, abre **SQL Editor** > **New Query**, cola o conteúdo de `supabase/setup-database.sql` e clica em **Run**.
-2. Vai a **Authentication** > **Users** > **Add User** e cria o teu utilizador e password.
-3. Vai a **Edge Functions** > **Deploy a new function** > **Via Editor**, cria a função `generate-poi-sheet` com o código de `supabase/functions/generate-poi-sheet/index.ts` e adiciona o segredo `GEMINI_API_KEY`.
-
-### 3. Abrir e Ligar
-1. Abre o link do teu GitHub Pages no navegador.
-2. Na primeira abertura, cola o **Project URL** e a **Anon Public Key** do teu Supabase (ficam guardados no navegador) e inicia sessão com o utilizador criado no passo 2.
+## Mobilidade entre Casa e Gabinete
+- **Link Magico de Sincronizacao:** No primeiro PC onde configurares o URL e a Chave do Supabase, clica no botao **Sincronizar PC** na barra superior. Copia o link e envia-o para ti proprio (por email ou WhatsApp). Ao abrires esse link no PC do gabinete, o Supabase fica logo ligado e guardado permanentemente nesse navegador.
+- **Icone no Ambiente de Trabalho:** No Chrome ou Edge, clica em **Instalar App** na barra superior (ou no icone de instalacao na barra de enderecos) para criar um icone proprio no Ambiente de Trabalho em qualquer PC.
