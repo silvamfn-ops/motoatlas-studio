@@ -92,11 +92,11 @@ export default function CulturalStudio({ tripId, onDataChanged }) {
   }
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5">
       <form onSubmit={handleSave} className="df-card p-5 space-y-4">
         <div className="flex flex-wrap justify-between items-center gap-2 border-b pb-3" style={{ borderColor: 'var(--line)' }}>
           <div>
-            <h2 className="text-base sm:text-lg font-bold m-0">🏛️ Nova Ficha Técnica Cultural</h2>
+            <h2 className="text-lg font-bold m-0">🏛️ Nova Ficha Técnica Cultural</h2>
             <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
               Sincronizada com o guia offline MotoAtlas Tour
             </p>
@@ -105,7 +105,7 @@ export default function CulturalStudio({ tripId, onDataChanged }) {
             type="button"
             onClick={handleAI}
             disabled={loadingAI}
-            className="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white shadow transition"
+            className="px-4 py-2 rounded-xl text-sm font-semibold text-white shadow transition"
             style={{ background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }}
           >
             {loadingAI ? '⏳ A gerar com Gemini...' : '✨ Preencher Ficha com IA'}
@@ -204,7 +204,7 @@ export default function CulturalStudio({ tripId, onDataChanged }) {
       {savedPois.length > 0 && (
         <div className="df-card p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm sm:text-base font-bold m-0">📚 Fichas Culturais Guardadas</h3>
+            <h3 className="text-base font-bold m-0">📚 Fichas Culturais Guardadas</h3>
             <span className="df-pill">{savedPois.length}</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

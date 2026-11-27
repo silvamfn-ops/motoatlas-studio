@@ -11,6 +11,20 @@ const WAYPOINT_CONFIG = {
   meeting_point: { label: 'Encontro', color: '#475569', icon: '📍' },
 };
 
+// Paleta contrastante para desenhar varias etapas simultaneamente no mapa
+const MULTI_STAGE_PALETTE = [
+  '#1E466E', // Azul NC750X
+  '#059669', // Verde Esmeralda
+  '#D97706', // Ambar
+  '#7C3AED', // Roxo
+  '#DC2626', // Vermelho
+  '#0284C7', // Azul Ciano
+  '#DB2777', // Magenta
+  '#4F46E5', // Indigo
+  '#0D9488', // Turquesa
+  '#EA580C', // Laranja
+];
+
 function haversineKm([lat1, lon1], [lat2, lon2]) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -66,7 +80,7 @@ function parseKmlString(kmlText) {
   return { routePoints, extractedPins };
 }
 
-export default function StageBuilder({ tripId, summaryLevel = 'detailed', onDataChanged }) {
+export default function StageBuilder({ tripId, onDataChanged }) {
   const supabase = getSupabaseClient();
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
@@ -82,6 +96,9 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
   const [saving, setSaving] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [statusMsg, setStatusMsg] = useState(null);
+
+  // Modo de visualizacao do mapa: 'single' (etapa ativa) ou 'all' (todas as etapas simultaneamente)
+  const [mapViewMode, setMapViewMode] = useState('single');
 
   const [showBuilderCard, setShowBuilderCard] = useState(true);
   const [showSavedListCard, setShowSavedListCard] = useState(true);
@@ -183,10 +200,76 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
     return () => ro.disconnect();
   }, [showBuilderCard]);
 
+  // Renderizacao do mapa (suporta Etapa Individual ou Todas as Etapas Simultaneamente)
   useEffect(() => {
     if (!layerGroup.current || !mapInstance.current) return;
     layerGroup.current.clearLayers();
 
+    if (mapViewMode === 'all') {
+      const allBounds = [];
+
+      savedStages.forEach((st, idx) => {
+        const isEditedCurrently = st.id === editingStageId;
+        const pts = isEditedCurrently && routeCoords.length > 0
+          ? routeCoords
+          : Array.isArray(st.route_geometry)
+          ? st.route_geometry
+          : [];
+
+        if (pts.length > 0) {
+          const color = MULTI_STAGE_PALETTE[idx % MULTI_STAGE_PALETTE.length];
+          L.polyline(pts, { color: '#FFFFFF', weight: 7, opacity: 0.75 }).addTo(layerGroup.current);
+          const poly = L.polyline(pts, { color, weight: 4.5, opacity: 0.95 })
+            .bindPopup(
+              `<b>Dia ${st.day_number}: ${st.title}</b><br>${st.origin_name} → ${st.destination_name}<br>${st.estimated_distance_km} km`
+            )
+            .addTo(layerGroup.current);
+
+          pts.forEach((p) => allBounds.push(p));
+
+          // Etiqueta com o numero do dia no inicio da etapa
+          const startPt = pts[0];
+          const dayIcon = L.divIcon({
+            className: '',
+            html: `<div class="stage-day-badge" style="border-color:${color}">Dia ${st.day_number}</div>`,
+            iconSize: [48, 22],
+            iconAnchor: [24, 11],
+          });
+          L.marker(startPt, { icon: dayIcon })
+            .bindPopup(`<b>Dia ${st.day_number}: ${st.title}</b><br>Partida: ${st.origin_name}`)
+            .addTo(layerGroup.current);
+
+          // Marcador de chegada da ultima etapa
+          if (idx === savedStages.length - 1) {
+            const endPt = pts[pts.length - 1];
+            const endIcon = L.divIcon({
+              className: '',
+              html: `<div class="stage-day-badge" style="background:#059669;border-color:#ffffff">🏁 Fim</div>`,
+              iconSize: [52, 22],
+              iconAnchor: [26, 11],
+            });
+            L.marker(endPt, { icon: endIcon })
+              .bindPopup(`<b>Destino Final:</b> ${st.destination_name}`)
+              .addTo(layerGroup.current);
+          }
+        }
+      });
+
+      // Se existir uma nova etapa ainda nao guardada desenhada no momento, mostra-a tambem a tracejado
+      if (!editingStageId && routeCoords.length > 0) {
+        L.polyline(routeCoords, { color: '#1E466E', weight: 4.5, dashArray: '8, 8', opacity: 0.9 })
+          .bindPopup('<b>Nova etapa (por guardar)</b>')
+          .addTo(layerGroup.current);
+        routeCoords.forEach((p) => allBounds.push(p));
+      }
+
+      if (allBounds.length > 0) {
+        mapInstance.current.fitBounds(allBounds, { padding: [35, 35] });
+      }
+      return;
+    }
+
+    // Modo 'single': etapa individual em edicao/criacao
     if (routeCoords.length > 0) {
       L.polyline(routeCoords, { color: '#C5CCD4', weight: 8, opacity: 0.8 }).addTo(layerGroup.current);
       const poly = L.polyline(routeCoords, { color: '#1E466E', weight: 5, opacity: 0.95 }).addTo(layerGroup.current);
@@ -205,7 +288,7 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
         .bindPopup(`<b>${wp.name}</b><br>km ${wp.km_from_start}`)
         .addTo(layerGroup.current);
     });
-  }, [routeCoords, waypoints]);
+  }, [routeCoords, waypoints, mapViewMode, savedStages, editingStageId]);
 
   function applyExtractedRoute(pts, fileName, extractedPins = []) {
     if (pts.length === 0) {
@@ -221,6 +304,7 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
     const roundedKm = Math.round(totalKm * 10) / 10;
     const cleanTitle = fileName.replace(/\.(gpx|kmz|kml)$/i, '');
 
+    setMapViewMode('single');
     setRouteCoords(simplified);
     setForm((prev) => ({
       ...prev,
@@ -310,6 +394,7 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
     setLoadingEdit(true);
     setStatusMsg(null);
     setShowBuilderCard(true);
+    setMapViewMode('single');
     try {
       const { data: wpsData, error: wpErr } = await supabase
         .from('route_waypoints')
@@ -492,9 +577,9 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
   }
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5">
       <div
-        className="df-card p-4 sm:p-6"
+        className="df-card p-6"
         style={editingStageId ? { borderColor: 'var(--accent-bright)' } : undefined}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -503,7 +588,7 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
             onClick={() => setShowBuilderCard(!showBuilderCard)}
             className="flex items-center gap-2 text-left"
           >
-            <h2 className="text-base sm:text-lg font-bold m-0">
+            <h2 className="text-lg font-bold m-0">
               {editingStageId ? '✎ Editar Etapa Guardada' : '🗺️ Construtor de Etapa & Mapa'}
             </h2>
             <span className="text-xs" style={{ color: 'var(--muted)' }}>
@@ -512,6 +597,43 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
           </button>
 
           <div className="flex items-center gap-2">
+            {/* Seletor de Vista do Mapa: Etapa Ativa vs Todas as Etapas */}
+            <div
+              className="inline-flex p-0.5 rounded-xl border text-xs"
+              style={{ background: 'var(--surface-2)', borderColor: 'var(--line)' }}
+              role="group"
+              aria-label="Modo de visualização do mapa"
+            >
+              <button
+                type="button"
+                onClick={() => setMapViewMode('single')}
+                className={`px-3 py-1 rounded-lg font-semibold transition ${
+                  mapViewMode === 'single' ? 'text-white' : ''
+                }`}
+                style={
+                  mapViewMode === 'single'
+                    ? { background: 'var(--accent)' }
+                    : { color: 'var(--muted)' }
+                }
+              >
+                📍 Etapa ativa
+              </button>
+              <button
+                type="button"
+                onClick={() => setMapViewMode('all')}
+                className={`px-3 py-1 rounded-lg font-semibold transition ${
+                  mapViewMode === 'all' ? 'text-white' : ''
+                }`}
+                style={
+                  mapViewMode === 'all'
+                    ? { background: 'var(--accent)' }
+                    : { color: 'var(--muted)' }
+                }
+              >
+                🗺️ Todas as etapas ({savedStages.length})
+              </button>
+            </div>
+
             {editingStageId && (
               <button
                 type="button"
@@ -628,17 +750,15 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
                 </div>
               </div>
 
-              {summaryLevel === 'detailed' && (
-                <div>
-                  <label className="block text-xs font-semibold mb-1">Alertas ZBE / Trânsito</label>
-                  <input
-                    placeholder="Ex.: ZBE ativa no centro de Granada"
-                    value={form.traffic_zbe_alerts}
-                    onChange={(e) => setForm({ ...form, traffic_zbe_alerts: e.target.value })}
-                    className="df-input w-full px-3 py-2 text-sm"
-                  />
-                </div>
-              )}
+              <div>
+                <label className="block text-xs font-semibold mb-1">Alertas ZBE / Trânsito</label>
+                <input
+                  placeholder="Ex.: ZBE ativa no centro de Granada"
+                  value={form.traffic_zbe_alerts}
+                  onChange={(e) => setForm({ ...form, traffic_zbe_alerts: e.target.value })}
+                  className="df-input w-full px-3 py-2 text-sm"
+                />
+              </div>
 
               {waypoints.length > 0 && (
                 <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
@@ -683,38 +803,67 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
               </button>
             </form>
 
+            {/* Painel do Mapa */}
             <div className="lg:col-span-7 space-y-2.5 flex flex-col">
               <div
-                className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl border"
+                className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl border"
                 style={{ background: 'var(--surface-2)', borderColor: 'var(--line)' }}
               >
-                <span className="text-xs font-semibold px-1.5" style={{ color: 'var(--muted)' }}>
-                  📍 Marcar:
-                </span>
-                {Object.entries(WAYPOINT_CONFIG).map(([k, cfg]) => {
-                  const selected = activeTool === k;
-                  return (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => setActiveTool(k)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${
-                        selected ? 'text-white font-semibold' : ''
-                      }`}
-                      style={
-                        selected
-                          ? { background: 'var(--accent)' }
-                          : { background: 'var(--surface)', color: 'var(--text)' }
-                      }
-                    >
-                      {cfg.icon} {cfg.label}
-                    </button>
-                  );
-                })}
+                {mapViewMode === 'single' ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs font-semibold px-1.5" style={{ color: 'var(--muted)' }}>
+                      📍 Marcar:
+                    </span>
+                    {Object.entries(WAYPOINT_CONFIG).map(([k, cfg]) => {
+                      const selected = activeTool === k;
+                      return (
+                        <button
+                          key={k}
+                          type="button"
+                          onClick={() => setActiveTool(k)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${
+                            selected ? 'text-white font-semibold' : ''
+                          }`}
+                          style={
+                            selected
+                              ? { background: 'var(--accent)' }
+                              : { background: 'var(--surface)', color: 'var(--text)' }
+                          }
+                        >
+                          {cfg.icon} {cfg.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2 px-1 text-xs">
+                    <span className="font-semibold" style={{ color: 'var(--accent-bright)' }}>
+                      🗺️ Vista panorâmica da viagem:
+                    </span>
+                    {savedStages.map((st, idx) => {
+                      const c = MULTI_STAGE_PALETTE[idx % MULTI_STAGE_PALETTE.length];
+                      return (
+                        <span key={st.id} className="inline-flex items-center gap-1 font-medium">
+                          <i
+                            style={{
+                              display: 'inline-block',
+                              width: '10px',
+                              height: '10px',
+                              borderRadius: '99px',
+                              background: c,
+                            }}
+                          />
+                          Dia {st.day_number}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
+
               <div
                 ref={mapRef}
-                className="h-[340px] sm:h-[470px] w-full rounded-xl border z-0 flex-1"
+                className="h-[480px] w-full rounded-xl border z-0 flex-1"
                 style={{ borderColor: 'var(--line)' }}
               ></div>
             </div>
@@ -722,14 +871,15 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
         )}
       </div>
 
-      <div className="df-card p-4 sm:p-5 space-y-3">
+      {/* Lista de Etapas Guardadas */}
+      <div className="df-card p-5 space-y-3">
         <div className="flex justify-between items-center">
           <button
             type="button"
             onClick={() => setShowSavedListCard(!showSavedListCard)}
             className="flex items-center gap-2 text-left"
           >
-            <h3 className="text-sm sm:text-base font-bold m-0">
+            <h3 className="text-base font-bold m-0">
               📋 Etapas Guardadas nesta Viagem
             </h3>
             <span className="df-pill">{savedStages.length}</span>
@@ -757,8 +907,9 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {savedStages.map((st) => {
+              {savedStages.map((st, idx) => {
                 const isBeingEdited = editingStageId === st.id;
+                const stageColor = MULTI_STAGE_PALETTE[idx % MULTI_STAGE_PALETTE.length];
                 return (
                   <div
                     key={st.id}
@@ -770,8 +921,19 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
                     }
                   >
                     <div className="pr-2 min-w-0">
-                      <div className="font-bold" style={{ color: 'var(--accent-bright)' }}>
-                        Dia {st.day_number} • {st.estimated_distance_km} km
+                      <div className="flex items-center gap-1.5 font-bold" style={{ color: 'var(--accent-bright)' }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: '9px',
+                            height: '9px',
+                            borderRadius: '99px',
+                            background: stageColor,
+                          }}
+                        />
+                        <span>
+                          Dia {st.day_number} • {st.estimated_distance_km} km
+                        </span>
                       </div>
                       <div className="font-semibold text-sm truncate mt-0.5">{st.title}</div>
                       <div className="truncate mt-0.5" style={{ color: 'var(--muted)' }}>

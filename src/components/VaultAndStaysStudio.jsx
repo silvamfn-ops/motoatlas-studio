@@ -128,10 +128,10 @@ export default function VaultAndStaysStudio({ tripId, userId, onDataChanged }) {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <div className="df-card p-5 space-y-4">
         <div className="border-b pb-3" style={{ borderColor: 'var(--line)' }}>
-          <h2 className="text-base sm:text-lg font-bold m-0">🎟️ Cofre de Bilhetes &amp; Documentos</h2>
+          <h2 className="text-lg font-bold m-0">🎟️ Cofre de Bilhetes &amp; Documentos</h2>
           <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
             Sincroniza offline com o MotoAtlas Tour
           </p>
@@ -227,7 +227,7 @@ export default function VaultAndStaysStudio({ tripId, userId, onDataChanged }) {
 
       <div className="df-card p-5 space-y-4">
         <div className="border-b pb-3" style={{ borderColor: 'var(--line)' }}>
-          <h2 className="text-base sm:text-lg font-bold m-0">🏨 Alojamentos &amp; Pernoitas</h2>
+          <h2 className="text-lg font-bold m-0">🏨 Alojamentos &amp; Pernoitas</h2>
           <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
             Reservas e estacionamento sincronizados
           </p>

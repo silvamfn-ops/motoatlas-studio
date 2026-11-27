@@ -11,7 +11,7 @@ import StageBuilder from './components/StageBuilder';
 import CulturalStudio from './components/CulturalStudio';
 import VaultAndStaysStudio from './components/VaultAndStaysStudio';
 
-const APP_VERSION = '8.1.0';
+const APP_VERSION = '8.2.0';
 
 applyMagicLinkIfPresent();
 
@@ -48,12 +48,14 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  // Preferencias locais do PC
   const [themeMode, setThemeMode] = useState(() => localStorage.getItem('ma_theme_mode') || 'dark');
-  const [summaryLevel, setSummaryLevel] = useState(() => localStorage.getItem('ma_summary_level') || 'detailed');
+  const [navOrientation, setNavOrientation] = useState(() => localStorage.getItem('ma_nav_orientation') || 'horizontal');
   const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
 
   const [trips, setTrips] = useState([]);
   const [selectedTripId, setSelectedTripId] = useState(() => localStorage.getItem('ma_selected_trip') || '');
+  const [deletingTrip, setDeletingTrip] = useState(false);
   const [tripStats, setTripStats] = useState({
     stagesCount: 0,
     totalKm: 0,
@@ -70,7 +72,7 @@ export default function App() {
 
   function showToast(text) {
     setToastMsg(text);
-    setTimeout(() => setToastMsg(''), 3200);
+    setTimeout(() => setToastMsg(''), 3400);
   }
 
   useEffect(() => {
@@ -96,8 +98,8 @@ export default function App() {
   }, [themeMode]);
 
   useEffect(() => {
-    localStorage.setItem('ma_summary_level', summaryLevel);
-  }, [summaryLevel]);
+    localStorage.setItem('ma_nav_orientation', navOrientation);
+  }, [navOrientation]);
 
   function cycleThemeQuickly() {
     const order = ['dark', 'light', 'auto'];
@@ -105,6 +107,12 @@ export default function App() {
     setThemeMode(next);
     const labels = { dark: 'Tema Escuro (Moto)', light: 'Tema Claro', auto: 'Tema Automático (Sistema)' };
     showToast(labels[next]);
+  }
+
+  function toggleNavOrientation() {
+    const next = navOrientation === 'horizontal' ? 'vertical' : 'horizontal';
+    setNavOrientation(next);
+    showToast(next === 'vertical' ? 'Barra de separadores na vertical (lateral)' : 'Barra de separadores na horizontal (topo)');
   }
 
   useEffect(() => {
@@ -142,7 +150,7 @@ export default function App() {
     if (!link) return;
     navigator.clipboard.writeText(link).then(() => {
       setCopiedLink(true);
-      showToast('Link rápido copiado! Abre-o no PC do gabinete ou telemóvel.');
+      showToast('Link rápido copiado! Abre-o no outro PC para ligar automaticamente.');
       setTimeout(() => setCopiedLink(false), 3000);
     });
   }
@@ -172,6 +180,8 @@ export default function App() {
     if (selectedTripId) {
       localStorage.setItem('ma_selected_trip', selectedTripId);
       if (session && supabase) loadTripStats(selectedTripId);
+    } else {
+      localStorage.removeItem('ma_selected_trip');
     }
   }, [selectedTripId, session]);
 
@@ -189,6 +199,8 @@ export default function App() {
       setTrips(data);
       if (data.length > 0 && (!selectedTripId || !data.some((t) => t.id === selectedTripId))) {
         setSelectedTripId(data[0].id);
+      } else if (data.length === 0) {
+        setSelectedTripId('');
       }
     }
   }
@@ -258,6 +270,55 @@ export default function App() {
       setTrips([data, ...trips]);
       setSelectedTripId(data.id);
       showToast(`Viagem "${data.title}" criada!`);
+    }
+  }
+
+  async function handleDeleteCurrentTrip() {
+    const current = trips.find((t) => t.id === selectedTripId);
+    if (!current) return;
+
+    const firstConfirm = confirm(
+      `Tens a certeza que queres APAGAR permanentemente a viagem "${current.title}" e todas as suas etapas, fichas culturais, bilhetes e alojamentos?`
+    );
+    if (!firstConfirm) return;
+
+    setDeletingTrip(true);
+    try {
+      // Remove ficheiros fisicos do bucket Storage se existirem
+      const { data: docs } = await supabase
+        .from('vault_documents')
+        .select('storage_path')
+        .eq('trip_id', current.id);
+
+      const pathsToRemove = (docs || []).map((d) => d.storage_path).filter(Boolean);
+      if (pathsToRemove.length > 0) {
+        await supabase.storage.from('mototour-vault').remove(pathsToRemove);
+      }
+
+      // Apaga registos dependentes caso alguma FK nao tenha ON DELETE CASCADE
+      const { data: stageRows } = await supabase.from('stages').select('id').eq('trip_id', current.id);
+      const stageIds = (stageRows || []).map((s) => s.id);
+      if (stageIds.length > 0) {
+        await supabase.from('route_waypoints').delete().in('stage_id', stageIds);
+      }
+      await Promise.all([
+        supabase.from('stages').delete().eq('trip_id', current.id),
+        supabase.from('pois').delete().eq('trip_id', current.id),
+        supabase.from('vault_documents').delete().eq('trip_id', current.id),
+        supabase.from('accommodations').delete().eq('trip_id', current.id),
+      ]);
+
+      const { error } = await supabase.from('trips').delete().eq('id', current.id);
+      if (error) throw error;
+
+      const remaining = trips.filter((t) => t.id !== current.id);
+      setTrips(remaining);
+      setSelectedTripId(remaining.length > 0 ? remaining[0].id : '');
+      showToast(`Viagem "${current.title}" apagada com sucesso.`);
+    } catch (err) {
+      alert('Erro ao apagar viagem: ' + (err.message || err));
+    } finally {
+      setDeletingTrip(false);
     }
   }
 
@@ -426,60 +487,82 @@ export default function App() {
   }
 
   const navItems = [
-    { id: 'resumo', icon: '🗺️', label: 'Etapas & Mapa' },
-    { id: 'cultural', icon: '🏛️', label: 'Fichas IA' },
-    { id: 'vault', icon: '🎟️', label: 'Cofre & Hotéis' },
-    { id: 'dados', icon: '⚙️', label: 'Dados & Sync' },
+    { id: 'resumo', icon: '🗺️', label: 'Etapas & Mapa', hint: 'Traçado GPX/KMZ e visão global' },
+    { id: 'cultural', icon: '🏛️', label: 'Fichas IA', hint: 'Monumentos e pontos de interesse' },
+    { id: 'vault', icon: '🎟️', label: 'Cofre & Hotéis', hint: 'Bilhetes, QR e alojamentos' },
+    { id: 'dados', icon: '⚙️', label: 'Dados & Sync', hint: 'Tema, disposição e sincronização' },
   ];
 
+  const isVerticalNav = navOrientation === 'vertical';
+
   return (
-    <div className="min-h-screen flex flex-col mobile-bottom-safe">
+    <div className="min-h-screen flex flex-col">
+      {/* Cabecalho Superior */}
       <header
         className="sticky top-0 z-30 backdrop-blur border-b"
         style={{ background: 'var(--header-bg)', borderColor: 'var(--line)' }}
       >
-        <div className={`${isFullscreen ? 'max-w-full px-6' : 'max-w-7xl px-4 sm:px-6'} mx-auto py-2.5 flex items-center justify-between gap-3`}>
-          <div className="flex items-center gap-2.5 min-w-0">
-            <MotoAtlasLogo size={36} />
+        <div className={`${isFullscreen || isVerticalNav ? 'max-w-full px-6' : 'max-w-7xl px-6'} mx-auto py-2.5 flex items-center justify-between gap-4`}>
+          <div className="flex items-center gap-3 min-w-0">
+            <MotoAtlasLogo size={38} />
             <div className="min-w-0">
-              <h1 className="text-base sm:text-lg font-extrabold tracking-tight leading-none truncate">
+              <h1 className="text-lg font-extrabold tracking-tight leading-none truncate">
                 MotoAtlas<span style={{ color: 'var(--accent-bright)' }}>Studio</span>
               </h1>
-              <p className="text-[11px] truncate mt-0.5 hidden sm:block" style={{ color: 'var(--muted)' }}>
+              <p className="text-[11px] truncate mt-0.5" style={{ color: 'var(--muted)' }}>
                 O teu roteiro, sob controlo.
               </p>
             </div>
           </div>
 
-          <nav aria-label="Navegação principal" className="hidden md:flex items-center gap-1.5 p-1 rounded-xl border" style={{ background: 'var(--surface-2)', borderColor: 'var(--line)' }}>
-            {navItems.map((item) => {
-              const active = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
-                    active ? 'text-white shadow-sm' : ''
-                  }`}
-                  style={
-                    active
-                      ? { background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }
-                      : { color: 'var(--muted)' }
-                  }
-                >
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
+          {/* Barra de Separadores na Horizontal (quando selecionada) */}
+          {!isVerticalNav && (
+            <nav
+              aria-label="Navegação principal"
+              className="flex items-center gap-1.5 p-1 rounded-xl border"
+              style={{ background: 'var(--surface-2)', borderColor: 'var(--line)' }}
+            >
+              {navItems.map((item) => {
+                const active = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveTab(item.id)}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                      active ? 'text-white shadow-sm' : ''
+                    }`}
+                    style={
+                      active
+                        ? { background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }
+                        : { color: 'var(--muted)' }
+                    }
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          )}
 
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Controlos Rapidos do Cabecalho */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={toggleNavOrientation}
+              className="df-input px-2.5 h-9 flex items-center gap-1.5 text-xs font-semibold hover:opacity-85"
+              title="Alternar barra de separadores entre Horizontal (Topo) e Vertical (Lateral)"
+              aria-label="Alternar orientação dos separadores"
+            >
+              <span>{isVerticalNav ? '◫' : '☰'}</span>
+              <span className="hidden xl:inline">{isVerticalNav ? 'Menu Topo' : 'Menu Lateral'}</span>
+            </button>
+
             <button
               type="button"
               onClick={cycleThemeQuickly}
-              className="df-input w-9 h-9 flex items-center justify-center text-sm hover:opacity-80"
+              className="df-input w-9 h-9 flex items-center justify-center text-sm hover:opacity-85"
               title="Alternar tema (Escuro / Claro / Automático)"
               aria-label="Alternar tema"
             >
@@ -489,7 +572,7 @@ export default function App() {
             <button
               type="button"
               onClick={toggleFullscreen}
-              className="df-input w-9 h-9 hidden sm:flex items-center justify-center text-sm hover:opacity-80"
+              className="df-input w-9 h-9 flex items-center justify-center text-sm hover:opacity-85"
               title="Alternar Ecrã Inteiro"
               aria-label="Alternar ecrã inteiro"
             >
@@ -499,15 +582,15 @@ export default function App() {
             <button
               type="button"
               onClick={handleCopyMagicLink}
-              className="df-input px-2.5 h-9 flex items-center gap-1.5 text-xs font-semibold hover:opacity-80"
-              title="Copiar link rápido para sincronizar outro PC ou telemóvel"
+              className="df-input px-2.5 h-9 flex items-center gap-1.5 text-xs font-semibold hover:opacity-85"
+              title="Copiar link rápido para sincronizar outro PC"
             >
               <span>{copiedLink ? '✅' : '🔗'}</span>
-              <span className="hidden sm:inline">{copiedLink ? 'Copiado' : 'Sync PC'}</span>
+              <span>{copiedLink ? 'Copiado' : 'Sync PC'}</span>
             </button>
 
             <span
-              className="df-pill hidden lg:inline-flex"
+              className="df-pill"
               style={{ color: 'var(--good)', borderColor: 'rgba(16, 185, 129, 0.35)' }}
               title={`Ligado como ${session.user.email} · v${APP_VERSION}`}
             >
@@ -517,88 +600,85 @@ export default function App() {
         </div>
       </header>
 
-      <nav
-        aria-label="Navegação mobile"
-        className="md:hidden fixed bottom-0 inset-x-0 z-30 border-t flex justify-around items-center py-1.5 px-1 backdrop-blur"
-        style={{
-          background: 'var(--header-bg)',
-          borderColor: 'var(--line)',
-          paddingBottom: 'max(6px, env(safe-area-inset-bottom))',
-        }}
-      >
-        {navItems.map((item) => {
-          const active = activeTab === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setActiveTab(item.id)}
-              className="flex flex-col items-center justify-center py-1 px-2 rounded-lg flex-1 transition"
-              style={{ color: active ? 'var(--accent-bright)' : 'var(--muted)' }}
-            >
-              <span className="text-base leading-none">{item.icon}</span>
-              <span className="text-[10.5px] font-semibold mt-1">{item.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+      {/* Corpo da Aplicacao (suporta Sidebar Vertical ou Layout Horizontal) */}
+      <div className="flex flex-1 min-h-0">
+        {isVerticalNav && (
+          <aside
+            aria-label="Navegação lateral"
+            className="w-60 shrink-0 border-r p-4 flex flex-col justify-between gap-4"
+            style={{ background: 'var(--surface)', borderColor: 'var(--line)' }}
+          >
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-bold uppercase tracking-wider px-2.5 pb-1" style={{ color: 'var(--muted)' }}>
+                Ferramentas Studio
+              </div>
+              {navItems.map((item) => {
+                const active = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveTab(item.id)}
+                    className={`w-full text-left flex items-start gap-2.5 px-3 py-2.5 rounded-xl transition ${
+                      active ? 'text-white shadow-sm' : 'hover:opacity-90'
+                    }`}
+                    style={
+                      active
+                        ? { background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }
+                        : { color: 'var(--text)' }
+                    }
+                  >
+                    <span className="text-base leading-none mt-0.5">{item.icon}</span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold leading-tight">{item.label}</div>
+                      <div
+                        className="text-[10.5px] leading-tight mt-0.5 truncate"
+                        style={{ color: active ? 'rgba(255,255,255,0.82)' : 'var(--muted)' }}
+                      >
+                        {item.hint}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
 
-      <main className={`${isFullscreen ? 'max-w-full px-6' : 'max-w-7xl px-4 sm:px-6'} w-full mx-auto py-4 sm:py-6 space-y-4 sm:space-y-5 flex-1`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <b className="text-base sm:text-lg truncate">
-                {selectedTrip ? selectedTrip.title : 'Nenhuma viagem selecionada'}
-              </b>
+            <div className="pt-3 border-t space-y-2" style={{ borderColor: 'var(--line)' }}>
+              <button
+                type="button"
+                onClick={toggleNavOrientation}
+                className="df-input w-full px-3 py-2 text-xs font-semibold flex items-center justify-center gap-1.5"
+              >
+                <span>⇄</span>
+                <span>Mudar para barra horizontal</span>
+              </button>
+              <div className="text-center text-[11px] font-mono opacity-60" style={{ color: 'var(--muted)' }}>
+                MotoAtlas Studio · v{APP_VERSION}
+              </div>
+            </div>
+          </aside>
+        )}
+
+        <main className={`${isFullscreen || isVerticalNav ? 'max-w-full px-6' : 'max-w-7xl px-6'} w-full mx-auto py-5 space-y-5 flex-1 min-w-0`}>
+          {/* Barra de Controlo da Viagem */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <b className="text-lg truncate">
+                  {selectedTrip ? selectedTrip.title : 'Nenhuma viagem selecionada'}
+                </b>
+                {selectedTrip && (
+                  <span className="df-pill">🏍️ Planeamento</span>
+                )}
+              </div>
               {selectedTrip && (
-                <span className="df-pill hidden sm:inline-flex">🏍️ Planeamento</span>
+                <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+                  {tripStats.stagesCount} etapas • {tripStats.totalKm} km acumulados ({totalHours}h {remMins}m estimados)
+                </div>
               )}
             </div>
-            {summaryLevel === 'detailed' && selectedTrip && (
-              <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-                {tripStats.stagesCount} etapas • {tripStats.totalKm} km acumulados ({totalHours}h {remMins}m estimados)
-              </div>
-            )}
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2 justify-end">
-            <div
-              className="inline-flex p-0.5 rounded-xl border text-xs"
-              style={{ background: 'var(--surface)', borderColor: 'var(--line)' }}
-              role="group"
-              aria-label="Nível de detalhe"
-            >
-              <button
-                type="button"
-                onClick={() => setSummaryLevel('basic')}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition ${
-                  summaryLevel === 'basic' ? 'text-white' : ''
-                }`}
-                style={
-                  summaryLevel === 'basic'
-                    ? { background: 'var(--accent)' }
-                    : { color: 'var(--muted)' }
-                }
-              >
-                Básico
-              </button>
-              <button
-                type="button"
-                onClick={() => setSummaryLevel('detailed')}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition ${
-                  summaryLevel === 'detailed' ? 'text-white' : ''
-                }`}
-                style={
-                  summaryLevel === 'detailed'
-                    ? { background: 'var(--accent)' }
-                    : { color: 'var(--muted)' }
-                }
-              >
-                Detalhado
-              </button>
-            </div>
-
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => stepTrip(1)}
@@ -611,7 +691,7 @@ export default function App() {
                 value={selectedTripId}
                 onChange={(e) => setSelectedTripId(e.target.value)}
                 aria-label="Selecionar viagem"
-                className="df-input px-3 h-8 text-xs sm:text-sm font-semibold max-w-[190px] sm:max-w-[240px]"
+                className="df-input px-3 h-8 text-sm font-semibold min-w-[210px] max-w-[280px]"
               >
                 {trips.length === 0 && <option value="">Sem viagens criadas</option>}
                 {trips.map((t) => (
@@ -634,197 +714,203 @@ export default function App() {
                 className="px-3 h-8 rounded-xl text-xs font-semibold text-white shadow-sm transition"
                 style={{ background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }}
               >
-                + Nova
+                + Nova viagem
               </button>
+              {selectedTrip && (
+                <button
+                  type="button"
+                  disabled={deletingTrip}
+                  onClick={handleDeleteCurrentTrip}
+                  title="Apagar viagem selecionada"
+                  className="df-input px-2.5 h-8 flex items-center gap-1 text-xs font-semibold transition hover:opacity-85 disabled:opacity-50"
+                  style={{ borderColor: 'rgba(239, 68, 68, 0.45)', color: 'var(--red)' }}
+                >
+                  <span>🗑️</span>
+                  <span>{deletingTrip ? 'A apagar...' : 'Apagar'}</span>
+                </button>
+              )}
             </div>
           </div>
-        </div>
 
-        {selectedTripId && (
-          <div className={`grid ${summaryLevel === 'basic' ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4'} gap-3 sm:gap-4`}>
-            <div className="df-card p-3.5 sm:p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>
-                  Distância total
-                </span>
-                <span className="text-sm">🏍️</span>
-              </div>
-              <b className="block text-xl sm:text-2xl font-extrabold font-mono mt-1" style={{ color: 'var(--accent-bright)' }}>
-                {tripStats.totalKm} km
-              </b>
-              {summaryLevel === 'detailed' && (
+          {/* Cartoes KPI de Resumo */}
+          {selectedTripId && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="df-card p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>
+                    Distância total
+                  </span>
+                  <span className="text-sm">🏍️</span>
+                </div>
+                <b className="block text-2xl font-extrabold font-mono mt-1" style={{ color: 'var(--accent-bright)' }}>
+                  {tripStats.totalKm} km
+                </b>
                 <div className="text-[11px] mt-1" style={{ color: 'var(--muted)' }}>
                   Tempo estimado: {totalHours}h {remMins}m
                 </div>
-              )}
-            </div>
-
-            <div className="df-card p-3.5 sm:p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>
-                  Etapas planeadas
-                </span>
-                <span className="text-sm">🗺️</span>
               </div>
-              <b className="block text-xl sm:text-2xl font-extrabold font-mono mt-1">
-                {tripStats.stagesCount}
-              </b>
-              {summaryLevel === 'detailed' && (
+
+              <div className="df-card p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>
+                    Etapas planeadas
+                  </span>
+                  <span className="text-sm">🗺️</span>
+                </div>
+                <b className="block text-2xl font-extrabold font-mono mt-1">
+                  {tripStats.stagesCount}
+                </b>
                 <div className="text-[11px] mt-1" style={{ color: 'var(--muted)' }}>
                   Média {tripStats.stagesCount > 0 ? Math.round(tripStats.totalKm / tripStats.stagesCount) : 0} km / dia
                 </div>
-              )}
+              </div>
+
+              <div className="df-card p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>
+                    Fichas culturais
+                  </span>
+                  <span className="text-sm">🏛️</span>
+                </div>
+                <b className="block text-2xl font-extrabold font-mono mt-1" style={{ color: 'var(--good)' }}>
+                  {tripStats.poisCount}
+                </b>
+                <div className="text-[11px] mt-1" style={{ color: 'var(--muted)' }}>
+                  Monumentos e pontos de interesse
+                </div>
+              </div>
+
+              <div className="df-card p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>
+                    Cofre &amp; Hotéis
+                  </span>
+                  <span className="text-sm">🎟️</span>
+                </div>
+                <b className="block text-2xl font-extrabold font-mono mt-1">
+                  {tripStats.docsCount + tripStats.staysCount}
+                </b>
+                <div className="text-[11px] mt-1" style={{ color: 'var(--muted)' }}>
+                  {tripStats.docsCount} bilhetes • {tripStats.staysCount} dormidas
+                </div>
+              </div>
             </div>
+          )}
 
-            {summaryLevel === 'detailed' && (
-              <>
-                <div className="df-card p-3.5 sm:p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>
-                      Fichas culturais
-                    </span>
-                    <span className="text-sm">🏛️</span>
+          {/* Separadores de Conteudo */}
+          {activeTab === 'dados' ? (
+            <div className="space-y-4">
+              <div className="df-card p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-bold m-0">🎨 Aparência &amp; Disposição (Este PC)</h2>
+                  <span className="df-pill">Local</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5">Tema da interface</label>
+                    <select
+                      value={themeMode}
+                      onChange={(e) => setThemeMode(e.target.value)}
+                      className="df-input w-full px-3 py-2.5 text-sm"
+                    >
+                      <option value="dark">Escuro (Cores Honda NC750X)</option>
+                      <option value="light">Claro (Alta visibilidade diurna)</option>
+                      <option value="auto">Automático (Seguir o Windows)</option>
+                    </select>
                   </div>
-                  <b className="block text-xl sm:text-2xl font-extrabold font-mono mt-1" style={{ color: 'var(--good)' }}>
-                    {tripStats.poisCount}
-                  </b>
-                  <div className="text-[11px] mt-1" style={{ color: 'var(--muted)' }}>
-                    Monumentos e pontos de interesse
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5">Orientação da barra de separadores</label>
+                    <select
+                      value={navOrientation}
+                      onChange={(e) => setNavOrientation(e.target.value)}
+                      className="df-input w-full px-3 py-2.5 text-sm"
+                    >
+                      <option value="horizontal">Horizontal (Barra superior)</option>
+                      <option value="vertical">Vertical (Painel lateral esquerdo)</option>
+                    </select>
                   </div>
                 </div>
-
-                <div className="df-card p-3.5 sm:p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>
-                      Cofre &amp; Hotéis
-                    </span>
-                    <span className="text-sm">🎟️</span>
-                  </div>
-                  <b className="block text-xl sm:text-2xl font-extrabold font-mono mt-1">
-                    {tripStats.docsCount + tripStats.staysCount}
-                  </b>
-                  <div className="text-[11px] mt-1" style={{ color: 'var(--muted)' }}>
-                    {tripStats.docsCount} bilhetes • {tripStats.staysCount} dormidas
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'dados' ? (
-          <div className="space-y-4">
-            <div className="df-card p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-bold m-0">🎨 Aparência (Este dispositivo)</h2>
-                <span className="df-pill">Local</span>
+                <p className="text-xs m-0" style={{ color: 'var(--muted)' }}>
+                  Estas preferências ficam guardadas neste computador e aplicam-se de imediato.
+                </p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold mb-1.5">Tema da interface</label>
-                  <select
-                    value={themeMode}
-                    onChange={(e) => setThemeMode(e.target.value)}
-                    className="df-input w-full px-3 py-2.5 text-sm"
-                  >
-                    <option value="dark">Escuro (Cores Honda NC750X)</option>
-                    <option value="light">Claro (Alta visibilidade diurna)</option>
-                    <option value="auto">Automático (Seguir o Windows / Telemóvel)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold mb-1.5">Nível de detalhe por defeito</label>
-                  <select
-                    value={summaryLevel}
-                    onChange={(e) => setSummaryLevel(e.target.value)}
-                    className="df-input w-full px-3 py-2.5 text-sm"
-                  >
-                    <option value="detailed">Detalhado (Todos os indicadores e mapas)</option>
-                    <option value="basic">Básico (Vista compacta e limpa)</option>
-                  </select>
-                </div>
-              </div>
-              <p className="text-xs m-0" style={{ color: 'var(--muted)' }}>
-                Estas preferências ficam guardadas apenas neste dispositivo e aplicam-se de imediato.
-              </p>
-            </div>
 
-            <div className="df-card p-5 space-y-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <h2 className="text-base font-bold m-0">☁️ Sincronização &amp; Mobilidade entre PCs</h2>
-                  <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-                    Sessão ativa: <b>{session.user.email}</b> · <span className="font-mono">v{APP_VERSION}</span>
-                  </p>
+              <div className="df-card p-5 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <h2 className="text-base font-bold m-0">☁️ Sincronização &amp; Mobilidade entre PCs</h2>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+                      Sessão ativa: <b>{session.user.email}</b> · <span className="font-mono">v{APP_VERSION}</span>
+                    </p>
+                  </div>
+                  <span className="df-pill" style={{ color: 'var(--good)' }}>● Sincronizado</span>
                 </div>
-                <span className="df-pill" style={{ color: 'var(--good)' }}>● Sincronizado</span>
-              </div>
-              <div className="flex flex-wrap gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleCopyMagicLink}
-                  className="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white transition"
-                  style={{ background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }}
-                >
-                  🔗 Copiar Link Rápido para outro PC
-                </button>
-                {deferredPrompt && (
+                <div className="flex flex-wrap gap-2.5">
                   <button
                     type="button"
-                    onClick={handleInstallPwa}
-                    className="df-input px-4 py-2 text-xs sm:text-sm font-semibold"
+                    onClick={handleCopyMagicLink}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold text-white transition"
+                    style={{ background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }}
                   >
-                    📲 Instalar Aplicação no Ambiente de Trabalho
+                    🔗 Copiar Link Rápido para outro PC
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => supabase.auth.signOut()}
-                  className="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold border"
-                  style={{ borderColor: 'var(--red)', color: 'var(--red)' }}
-                >
-                  Terminar sessão
-                </button>
+                  {deferredPrompt && (
+                    <button
+                      type="button"
+                      onClick={handleInstallPwa}
+                      className="df-input px-4 py-2 text-sm font-semibold"
+                    >
+                      📲 Instalar Aplicação no Ambiente de Trabalho
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => supabase.auth.signOut()}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold border"
+                    style={{ borderColor: 'var(--red)', color: 'var(--red)' }}
+                  >
+                    Terminar sessão
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ) : !selectedTripId ? (
-          <div className="df-card p-10 text-center space-y-3">
-            <p className="text-sm" style={{ color: 'var(--muted)' }}>
-              Ainda não tens nenhuma viagem criada.
-            </p>
-            <button
-              onClick={handleCreateTrip}
-              className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white"
-              style={{ background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }}
-            >
-              + Criar Primeira Viagem
-            </button>
-          </div>
-        ) : activeTab === 'resumo' ? (
-          <StageBuilder
-            tripId={selectedTripId}
-            summaryLevel={summaryLevel}
-            onDataChanged={() => loadTripStats(selectedTripId)}
-          />
-        ) : activeTab === 'cultural' ? (
-          <CulturalStudio
-            tripId={selectedTripId}
-            onDataChanged={() => loadTripStats(selectedTripId)}
-          />
-        ) : (
-          <VaultAndStaysStudio
-            tripId={selectedTripId}
-            userId={session.user.id}
-            onDataChanged={() => loadTripStats(selectedTripId)}
-          />
-        )}
-      </main>
+          ) : !selectedTripId ? (
+            <div className="df-card p-10 text-center space-y-3">
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>
+                Ainda não tens nenhuma viagem criada.
+              </p>
+              <button
+                onClick={handleCreateTrip}
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white"
+                style={{ background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }}
+              >
+                + Criar Primeira Viagem
+              </button>
+            </div>
+          ) : activeTab === 'resumo' ? (
+            <StageBuilder
+              tripId={selectedTripId}
+              onDataChanged={() => loadTripStats(selectedTripId)}
+            />
+          ) : activeTab === 'cultural' ? (
+            <CulturalStudio
+              tripId={selectedTripId}
+              onDataChanged={() => loadTripStats(selectedTripId)}
+            />
+          ) : (
+            <VaultAndStaysStudio
+              tripId={selectedTripId}
+              userId={session.user.id}
+              onDataChanged={() => loadTripStats(selectedTripId)}
+            />
+          )}
+        </main>
+      </div>
 
       {toastMsg && (
         <div
           role="status"
-          className="fixed bottom-20 md:bottom-6 right-4 z-50 px-4 py-2.5 rounded-xl text-xs font-semibold shadow-xl border"
+          className="fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl text-xs font-semibold shadow-xl border"
           style={{
             background: 'var(--surface)',
             borderColor: 'var(--accent-bright)',
