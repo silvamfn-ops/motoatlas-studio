@@ -11,6 +11,8 @@ import StageBuilder from './components/StageBuilder';
 import CulturalStudio from './components/CulturalStudio';
 import VaultAndStaysStudio from './components/VaultAndStaysStudio';
 
+const APP_VERSION = '8.1.0';
+
 applyMagicLinkIfPresent();
 
 function MotoAtlasLogo({ size = 38 }) {
@@ -46,7 +48,6 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // Preferencias locais do dispositivo (identico ao DuoFin 2: tema auto/light/dark e nivel basico/detalhado)
   const [themeMode, setThemeMode] = useState(() => localStorage.getItem('ma_theme_mode') || 'dark');
   const [summaryLevel, setSummaryLevel] = useState(() => localStorage.getItem('ma_summary_level') || 'detailed');
   const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
@@ -72,7 +73,6 @@ export default function App() {
     setTimeout(() => setToastMsg(''), 3200);
   }
 
-  // Aplicacao dinamica de Tema (Auto / Claro / Escuro)
   useEffect(() => {
     localStorage.setItem('ma_theme_mode', themeMode);
     const root = document.documentElement;
@@ -331,6 +331,9 @@ export default function App() {
           >
             Guardar e Ligar ao Supabase
           </button>
+          <p className="text-center text-[11px] font-mono opacity-55 m-0" style={{ color: 'var(--muted)' }}>
+            MotoAtlas Studio · v{APP_VERSION}
+          </p>
         </form>
       </div>
     );
@@ -414,6 +417,9 @@ export default function App() {
           >
             Entrar no Studio
           </button>
+          <p className="text-center text-[11px] font-mono opacity-55 m-0" style={{ color: 'var(--muted)' }}>
+            MotoAtlas Studio · v{APP_VERSION}
+          </p>
         </form>
       </div>
     );
@@ -428,13 +434,11 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col mobile-bottom-safe">
-      {/* Cabecalho Identico ao DuoFin 2 (Brand + Navegacao Central + Acoes Rapidas Direita) */}
       <header
         className="sticky top-0 z-30 backdrop-blur border-b"
         style={{ background: 'var(--header-bg)', borderColor: 'var(--line)' }}
       >
         <div className={`${isFullscreen ? 'max-w-full px-6' : 'max-w-7xl px-4 sm:px-6'} mx-auto py-2.5 flex items-center justify-between gap-3`}>
-          {/* Bloco Marca */}
           <div className="flex items-center gap-2.5 min-w-0">
             <MotoAtlasLogo size={36} />
             <div className="min-w-0">
@@ -447,7 +451,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Navegacao Desktop / Tablet */}
           <nav aria-label="Navegação principal" className="hidden md:flex items-center gap-1.5 p-1 rounded-xl border" style={{ background: 'var(--surface-2)', borderColor: 'var(--line)' }}>
             {navItems.map((item) => {
               const active = activeTab === item.id;
@@ -472,7 +475,6 @@ export default function App() {
             })}
           </nav>
 
-          {/* Acoes Rapidas Header (identico ao DuoFin 2: Tema, Ecra Inteiro, Badge Sync) */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
@@ -507,7 +509,7 @@ export default function App() {
             <span
               className="df-pill hidden lg:inline-flex"
               style={{ color: 'var(--good)', borderColor: 'rgba(16, 185, 129, 0.35)' }}
-              title={`Ligado como ${session.user.email}`}
+              title={`Ligado como ${session.user.email} · v${APP_VERSION}`}
             >
               ● Cloud
             </span>
@@ -515,7 +517,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Barra de Navegacao Inferior Fixa para Telemovel (< 768px) */}
       <nav
         aria-label="Navegação mobile"
         className="md:hidden fixed bottom-0 inset-x-0 z-30 border-t flex justify-around items-center py-1.5 px-1 backdrop-blur"
@@ -542,9 +543,7 @@ export default function App() {
         })}
       </nav>
 
-      {/* Conteudo Principal */}
       <main className={`${isFullscreen ? 'max-w-full px-6' : 'max-w-7xl px-4 sm:px-6'} w-full mx-auto py-4 sm:py-6 space-y-4 sm:space-y-5 flex-1`}>
-        {/* Barra de Controlo da Viagem (identica a barra de Ciclo Financeiro da DuoFin 2) */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -563,7 +562,6 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 justify-end">
-            {/* Controlo Segmentado Basico / Detalhado (identico ao DuoFin 2) */}
             <div
               className="inline-flex p-0.5 rounded-xl border text-xs"
               style={{ background: 'var(--surface)', borderColor: 'var(--line)' }}
@@ -600,7 +598,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Seletor de Viagem com setas ‹ › (identico ao cycleSelect do DuoFin 2) */}
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -643,7 +640,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Cartoes KPI de Resumo (identicos aos stat-cards do DuoFin 2; modo Basico compacta os cartoes) */}
         {selectedTripId && (
           <div className={`grid ${summaryLevel === 'basic' ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4'} gap-3 sm:gap-4`}>
             <div className="df-card p-3.5 sm:p-4">
@@ -716,10 +712,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Separadores de Conteudo */}
         {activeTab === 'dados' ? (
           <div className="space-y-4">
-            {/* Cartao Aparencia (identico ao separador Dados do DuoFin 2) */}
             <div className="df-card p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-bold m-0">🎨 Aparência (Este dispositivo)</h2>
@@ -755,13 +749,12 @@ export default function App() {
               </p>
             </div>
 
-            {/* Cartao Sincronizacao & Link Magico */}
             <div className="df-card p-5 space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <h2 className="text-base font-bold m-0">☁️ Sincronização &amp; Mobilidade entre PCs</h2>
                   <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-                    Sessão ativa: <b>{session.user.email}</b>
+                    Sessão ativa: <b>{session.user.email}</b> · <span className="font-mono">v{APP_VERSION}</span>
                   </p>
                 </div>
                 <span className="df-pill" style={{ color: 'var(--good)' }}>● Sincronizado</span>
@@ -828,7 +821,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Notificacao flutuante (Toast estilo DuoFin 2) */}
       {toastMsg && (
         <div
           role="status"

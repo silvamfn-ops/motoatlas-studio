@@ -83,7 +83,6 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [statusMsg, setStatusMsg] = useState(null);
 
-  // Acordeoes recolhiveis em mobile/compacto (estilo DuoFin 2)
   const [showBuilderCard, setShowBuilderCard] = useState(true);
   const [showSavedListCard, setShowSavedListCard] = useState(true);
 
@@ -177,7 +176,6 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
 
     mapInstance.current = map;
 
-    // Garante que o mapa se adapta corretamente quando o contentor muda de tamanho
     const ro = new ResizeObserver(() => {
       if (mapInstance.current) mapInstance.current.invalidateSize();
     });
@@ -495,7 +493,6 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
 
   return (
     <div className="space-y-4 sm:space-y-5">
-      {/* Cartao 1: Construtor + Mapa (com cabecalho recolhivel estilo DuoFin 2) */}
       <div
         className="df-card p-4 sm:p-6"
         style={editingStageId ? { borderColor: 'var(--accent-bright)' } : undefined}
@@ -686,7 +683,6 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
               </button>
             </form>
 
-            {/* Painel do Mapa Adaptativo */}
             <div className="lg:col-span-7 space-y-2.5 flex flex-col">
               <div
                 className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl border"
@@ -726,7 +722,6 @@ export default function StageBuilder({ tripId, summaryLevel = 'detailed', onData
         )}
       </div>
 
-      {/* Cartao 2: Etapas Guardadas (recolhivel estilo DuoFin 2) */}
       <div className="df-card p-4 sm:p-5 space-y-3">
         <div className="flex justify-between items-center">
           <button
