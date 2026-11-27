@@ -2,17 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import JSZip from 'jszip';
 import { getSupabaseClient } from '../lib/supabase';
-import {
-  Upload,
-  Trash2,
-  Save,
-  Navigation,
-  CheckCircle2,
-  AlertCircle,
-  Pencil,
-  X,
-  PlusCircle,
-} from 'lucide-react';
 
 const WAYPOINT_CONFIG = {
   fuel: { label: 'Combustível', color: '#2B5B84', icon: '⛽' },
@@ -77,7 +66,7 @@ function parseKmlString(kmlText) {
   return { routePoints, extractedPins };
 }
 
-export default function StageBuilder({ tripId, onDataChanged }) {
+export default function StageBuilder({ tripId, summaryLevel = 'detailed', onDataChanged }) {
   const supabase = getSupabaseClient();
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
@@ -93,6 +82,9 @@ export default function StageBuilder({ tripId, onDataChanged }) {
   const [saving, setSaving] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [statusMsg, setStatusMsg] = useState(null);
+
+  const [showBuilderCard, setShowBuilderCard] = useState(true);
+  const [showSavedListCard, setShowSavedListCard] = useState(true);
 
   const [form, setForm] = useState({
     day_number: 1,
@@ -183,14 +175,20 @@ export default function StageBuilder({ tripId, onDataChanged }) {
     });
 
     mapInstance.current = map;
-  }, []);
+
+    const ro = new ResizeObserver(() => {
+      if (mapInstance.current) mapInstance.current.invalidateSize();
+    });
+    ro.observe(mapRef.current);
+    return () => ro.disconnect();
+  }, [showBuilderCard]);
 
   useEffect(() => {
     if (!layerGroup.current || !mapInstance.current) return;
     layerGroup.current.clearLayers();
 
     if (routeCoords.length > 0) {
-      L.polyline(routeCoords, { color: '#C5CCD4', weight: 8, opacity: 0.75 }).addTo(layerGroup.current);
+      L.polyline(routeCoords, { color: '#C5CCD4', weight: 8, opacity: 0.8 }).addTo(layerGroup.current);
       const poly = L.polyline(routeCoords, { color: '#1E466E', weight: 5, opacity: 0.95 }).addTo(layerGroup.current);
       mapInstance.current.fitBounds(poly.getBounds(), { padding: [30, 30] });
     }
@@ -199,7 +197,7 @@ export default function StageBuilder({ tripId, onDataChanged }) {
       const cfg = WAYPOINT_CONFIG[wp.waypoint_type] || WAYPOINT_CONFIG.meeting_point;
       const icon = L.divIcon({
         className: '',
-        html: `<div style="background:${cfg.color};width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #E2E8F0;box-shadow:0 2px 6px rgba(0,0,0,0.6);">${cfg.icon}</div>`,
+        html: `<div style="background:${cfg.color};width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #FFFFFF;box-shadow:0 2px 6px rgba(0,0,0,0.45);">${cfg.icon}</div>`,
         iconSize: [28, 28],
         iconAnchor: [14, 14],
       });
@@ -311,6 +309,7 @@ export default function StageBuilder({ tripId, onDataChanged }) {
   async function handleEditStage(stage) {
     setLoadingEdit(true);
     setStatusMsg(null);
+    setShowBuilderCard(true);
     try {
       const { data: wpsData, error: wpErr } = await supabase
         .from('route_waypoints')
@@ -493,259 +492,317 @@ export default function StageBuilder({ tripId, onDataChanged }) {
   }
 
   return (
-    <div className="space-y-6">
-      <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 bg-[#131F2E] p-6 rounded-xl border transition ${editingStageId ? 'border-[#6BA5D8] ring-1 ring-[#6BA5D8]/40' : 'border-[#24374E]'}`}>
-        <form onSubmit={handleSave} className="lg:col-span-5 space-y-4">
-          <div className="flex flex-wrap justify-between items-center gap-2 border-b border-[#24374E] pb-3">
-            <div>
-              <h2 className="text-lg font-semibold text-[#E2E8F0]">
-                {editingStageId ? 'Editar Etapa Guardada' : 'Construtor de Etapa'}
-              </h2>
-              {editingStageId && (
-                <span className="text-[11px] text-[#6BA5D8] font-medium">Modo de edição ativo</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {editingStageId && (
-                <button
-                  type="button"
-                  onClick={() => cancelEditing()}
-                  className="flex items-center gap-1 bg-[#1C2D42] hover:bg-[#263C57] text-[#C5CCD4] px-2.5 py-1.5 rounded-lg text-xs border border-[#355070]"
-                >
-                  <X className="w-3.5 h-3.5" /> Cancelar
-                </button>
-              )}
-              <label className="cursor-pointer flex items-center gap-1.5 bg-[#C5CCD4] hover:bg-white text-[#0B131E] font-semibold px-3 py-1.5 rounded-lg text-xs transition shadow-sm">
-                <Upload className="w-3.5 h-3.5" />
-                {editingStageId ? 'Substituir GPX/KMZ' : 'Importar GPX / KMZ'}
-                <input type="file" accept=".gpx,.kmz,.kml" onChange={handleRouteFileUpload} className="hidden" />
-              </label>
-            </div>
-          </div>
-
-          {statusMsg && (
-            <div
-              className={`p-3 rounded-lg text-xs flex items-start gap-2 border ${
-                statusMsg.type === 'success'
-                  ? 'bg-emerald-950/60 border-emerald-700 text-emerald-300'
-                  : 'bg-red-950/60 border-red-700 text-red-300'
-              }`}
-            >
-              {statusMsg.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-              ) : (
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              )}
-              <span>{statusMsg.text}</span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-[11px] text-[#9AA6B5] mb-1">Dia Nº *</label>
-              <input
-                type="number"
-                min="1"
-                required
-                value={form.day_number}
-                onChange={(e) => setForm({ ...form, day_number: e.target.value })}
-                className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-sm text-[#E2E8F0] focus:border-[#5B9BD5] outline-none"
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-[11px] text-[#9AA6B5] mb-1">Data</label>
-              <input
-                type="date"
-                value={form.stage_date}
-                onChange={(e) => setForm({ ...form, stage_date: e.target.value })}
-                className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-sm text-[#E2E8F0] focus:border-[#5B9BD5] outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[11px] text-[#9AA6B5] mb-1">Título da Etapa *</label>
-            <input
-              required
-              placeholder="Ex: Etapa 1 - Lisboa a Zafra"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-              className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-sm text-[#E2E8F0] focus:border-[#5B9BD5] outline-none"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] text-[#9AA6B5] mb-1">Partida *</label>
-              <input
-                required
-                placeholder="Ex: Lisboa"
-                value={form.origin_name}
-                onChange={(e) => setForm({ ...form, origin_name: e.target.value })}
-                className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-sm text-[#E2E8F0] focus:border-[#5B9BD5] outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] text-[#9AA6B5] mb-1">Chegada *</label>
-              <input
-                required
-                placeholder="Ex: Zafra"
-                value={form.destination_name}
-                onChange={(e) => setForm({ ...form, destination_name: e.target.value })}
-                className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-sm text-[#E2E8F0] focus:border-[#5B9BD5] outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] text-[#9AA6B5] mb-1">Distância (km)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={form.estimated_distance_km}
-                onChange={(e) => setForm({ ...form, estimated_distance_km: e.target.value })}
-                className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-sm text-[#C5CCD4] font-mono focus:border-[#5B9BD5] outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] text-[#9AA6B5] mb-1">Duração (min)</label>
-              <input
-                type="number"
-                value={form.estimated_duration_minutes}
-                onChange={(e) => setForm({ ...form, estimated_duration_minutes: e.target.value })}
-                className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-sm font-mono text-[#E2E8F0] focus:border-[#5B9BD5] outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[11px] text-[#9AA6B5] mb-1">Alertas ZBE / Trânsito</label>
-            <input
-              placeholder="Ex: ZBE ativa no centro de Granada"
-              value={form.traffic_zbe_alerts}
-              onChange={(e) => setForm({ ...form, traffic_zbe_alerts: e.target.value })}
-              className="w-full bg-[#091019] border border-red-900/50 rounded-lg px-3 py-2 text-sm text-[#E2E8F0] focus:border-red-500 outline-none"
-            />
-          </div>
-
-          <div className="space-y-2 max-h-44 overflow-y-auto">
-            {waypoints.map((w) => (
-              <div key={w.id} className="bg-[#091019] p-2 rounded-lg border border-[#24374E] flex items-center gap-2 text-xs">
-                <span>{(WAYPOINT_CONFIG[w.waypoint_type] || WAYPOINT_CONFIG.meeting_point).icon}</span>
-                <input
-                  value={w.name}
-                  onChange={(e) => updateWaypointName(w.id, e.target.value)}
-                  className="bg-transparent border-b border-transparent focus:border-[#5B9BD5] text-[#E2E8F0] flex-1 outline-none px-1"
-                />
-                <span className="text-[#9AA6B5] font-mono shrink-0">km {w.km_from_start}</span>
-                <button type="button" onClick={() => setWaypoints(waypoints.filter((x) => x.id !== w.id))} className="text-red-400 hover:text-red-300 px-1">
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-
+    <div className="space-y-4 sm:space-y-5">
+      <div
+        className="df-card p-4 sm:p-6"
+        style={editingStageId ? { borderColor: 'var(--accent-bright)' } : undefined}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <button
-            type="submit"
-            disabled={saving}
-            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#1E466E] to-[#2B5B84] hover:from-[#265685] hover:to-[#356FA0] text-white border border-[#6BA5D8]/40 py-2.5 rounded-lg text-sm font-semibold transition shadow-md disabled:opacity-50"
+            type="button"
+            onClick={() => setShowBuilderCard(!showBuilderCard)}
+            className="flex items-center gap-2 text-left"
           >
-            <Save className="w-4 h-4" />
-            {saving
-              ? 'A guardar...'
-              : editingStageId
-              ? 'Guardar Alterações da Etapa'
-              : 'Guardar Nova Etapa'}
-          </button>
-        </form>
-
-        <div className="lg:col-span-7 space-y-3">
-          <div className="flex flex-wrap items-center gap-2 bg-[#091019] p-2 rounded-lg border border-[#24374E]">
-            <span className="text-xs text-[#9AA6B5] px-2 flex items-center gap-1">
-              <Navigation className="w-3.5 h-3.5 text-[#6BA5D8]" /> Marcar no mapa:
+            <h2 className="text-base sm:text-lg font-bold m-0">
+              {editingStageId ? '✎ Editar Etapa Guardada' : '🗺️ Construtor de Etapa & Mapa'}
+            </h2>
+            <span className="text-xs" style={{ color: 'var(--muted)' }}>
+              {showBuilderCard ? '▴' : '▾'}
             </span>
-            {Object.entries(WAYPOINT_CONFIG).map(([k, cfg]) => (
+          </button>
+
+          <div className="flex items-center gap-2">
+            {editingStageId && (
               <button
-                key={k}
                 type="button"
-                onClick={() => setActiveTool(k)}
-                className={`px-2.5 py-1 rounded text-xs transition ${
-                  activeTool === k
-                    ? 'bg-[#2B5B84] text-white font-semibold border border-[#6BA5D8]/50'
-                    : 'bg-[#131F2E] text-[#C5CCD4] hover:bg-[#1C2D42]'
-                }`}
+                onClick={() => cancelEditing()}
+                className="df-input px-2.5 py-1.5 text-xs font-semibold"
               >
-                {cfg.icon} {cfg.label}
+                ✕ Cancelar
               </button>
-            ))}
+            )}
+            <label
+              className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white shadow-sm"
+              style={{ background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }}
+            >
+              <span>📂</span>
+              <span>{editingStageId ? 'Substituir GPX/KMZ' : 'Importar GPX / KMZ'}</span>
+              <input type="file" accept=".gpx,.kmz,.kml" onChange={handleRouteFileUpload} className="hidden" />
+            </label>
           </div>
-          <div ref={mapRef} className="h-[490px] w-full rounded-xl border border-[#24374E] z-0"></div>
         </div>
+
+        {showBuilderCard && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-4 pt-4 border-t" style={{ borderColor: 'var(--line)' }}>
+            <form onSubmit={handleSave} className="lg:col-span-5 space-y-3.5">
+              {statusMsg && (
+                <div
+                  className="p-3 rounded-xl text-xs font-medium border"
+                  style={
+                    statusMsg.type === 'success'
+                      ? { background: 'rgba(16,185,129,0.12)', borderColor: 'var(--good)', color: 'var(--good)' }
+                      : { background: 'rgba(239,68,68,0.12)', borderColor: 'var(--red)', color: 'var(--red)' }
+                  }
+                >
+                  {statusMsg.type === 'success' ? '✅ ' : '⚠️ '}
+                  {statusMsg.text}
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Dia Nº *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={form.day_number}
+                    onChange={(e) => setForm({ ...form, day_number: e.target.value })}
+                    className="df-input w-full px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-semibold mb-1">Data</label>
+                  <input
+                    type="date"
+                    value={form.stage_date}
+                    onChange={(e) => setForm({ ...form, stage_date: e.target.value })}
+                    className="df-input w-full px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold mb-1">Título da Etapa *</label>
+                <input
+                  required
+                  placeholder="Ex.: Etapa 1 - Lisboa a Zafra"
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                  className="df-input w-full px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Partida *</label>
+                  <input
+                    required
+                    placeholder="Ex.: Lisboa"
+                    value={form.origin_name}
+                    onChange={(e) => setForm({ ...form, origin_name: e.target.value })}
+                    className="df-input w-full px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Chegada *</label>
+                  <input
+                    required
+                    placeholder="Ex.: Zafra"
+                    value={form.destination_name}
+                    onChange={(e) => setForm({ ...form, destination_name: e.target.value })}
+                    className="df-input w-full px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Distância (km)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={form.estimated_distance_km}
+                    onChange={(e) => setForm({ ...form, estimated_distance_km: e.target.value })}
+                    className="df-input w-full px-3 py-2 text-sm font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Duração (min)</label>
+                  <input
+                    type="number"
+                    value={form.estimated_duration_minutes}
+                    onChange={(e) => setForm({ ...form, estimated_duration_minutes: e.target.value })}
+                    className="df-input w-full px-3 py-2 text-sm font-mono"
+                  />
+                </div>
+              </div>
+
+              {summaryLevel === 'detailed' && (
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Alertas ZBE / Trânsito</label>
+                  <input
+                    placeholder="Ex.: ZBE ativa no centro de Granada"
+                    value={form.traffic_zbe_alerts}
+                    onChange={(e) => setForm({ ...form, traffic_zbe_alerts: e.target.value })}
+                    className="df-input w-full px-3 py-2 text-sm"
+                  />
+                </div>
+              )}
+
+              {waypoints.length > 0 && (
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                  {waypoints.map((w) => (
+                    <div
+                      key={w.id}
+                      className="df-input p-2 flex items-center gap-2 text-xs"
+                    >
+                      <span>{(WAYPOINT_CONFIG[w.waypoint_type] || WAYPOINT_CONFIG.meeting_point).icon}</span>
+                      <input
+                        value={w.name}
+                        onChange={(e) => updateWaypointName(w.id, e.target.value)}
+                        className="bg-transparent border-b border-transparent focus:border-current flex-1 outline-none px-1"
+                      />
+                      <span className="font-mono shrink-0" style={{ color: 'var(--muted)' }}>
+                        km {w.km_from_start}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setWaypoints(waypoints.filter((x) => x.id !== w.id))}
+                        style={{ color: 'var(--red)' }}
+                        className="px-1 font-bold"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={saving}
+                className="w-full py-2.5 rounded-xl text-sm font-semibold text-white shadow transition disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }}
+              >
+                {saving
+                  ? 'A guardar...'
+                  : editingStageId
+                  ? '💾 Guardar Alterações da Etapa'
+                  : '💾 Guardar Nova Etapa'}
+              </button>
+            </form>
+
+            <div className="lg:col-span-7 space-y-2.5 flex flex-col">
+              <div
+                className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl border"
+                style={{ background: 'var(--surface-2)', borderColor: 'var(--line)' }}
+              >
+                <span className="text-xs font-semibold px-1.5" style={{ color: 'var(--muted)' }}>
+                  📍 Marcar:
+                </span>
+                {Object.entries(WAYPOINT_CONFIG).map(([k, cfg]) => {
+                  const selected = activeTool === k;
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setActiveTool(k)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${
+                        selected ? 'text-white font-semibold' : ''
+                      }`}
+                      style={
+                        selected
+                          ? { background: 'var(--accent)' }
+                          : { background: 'var(--surface)', color: 'var(--text)' }
+                      }
+                    >
+                      {cfg.icon} {cfg.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div
+                ref={mapRef}
+                className="h-[340px] sm:h-[470px] w-full rounded-xl border z-0 flex-1"
+                style={{ borderColor: 'var(--line)' }}
+              ></div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="bg-[#131F2E] p-6 rounded-xl border border-[#24374E] space-y-3">
+      <div className="df-card p-4 sm:p-5 space-y-3">
         <div className="flex justify-between items-center">
-          <h3 className="text-sm font-semibold text-[#C5CCD4]">
-            Etapas Guardadas nesta Viagem ({savedStages.length})
-          </h3>
+          <button
+            type="button"
+            onClick={() => setShowSavedListCard(!showSavedListCard)}
+            className="flex items-center gap-2 text-left"
+          >
+            <h3 className="text-sm sm:text-base font-bold m-0">
+              📋 Etapas Guardadas nesta Viagem
+            </h3>
+            <span className="df-pill">{savedStages.length}</span>
+            <span className="text-xs" style={{ color: 'var(--muted)' }}>
+              {showSavedListCard ? '▴' : '▾'}
+            </span>
+          </button>
+
           {editingStageId && (
             <button
               type="button"
               onClick={() => cancelEditing()}
-              className="flex items-center gap-1 text-xs text-[#6BA5D8] hover:underline"
+              className="text-xs font-semibold underline"
+              style={{ color: 'var(--accent-bright)' }}
             >
-              <PlusCircle className="w-3.5 h-3.5" /> Criar nova etapa em branco
+              + Nova etapa
             </button>
           )}
         </div>
 
-        {savedStages.length === 0 ? (
-          <p className="text-xs text-[#9AA6B5]">Ainda não existem etapas guardadas nesta viagem.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {savedStages.map((st) => {
-              const isBeingEdited = editingStageId === st.id;
-              return (
-                <div
-                  key={st.id}
-                  className={`bg-[#091019] border p-3.5 rounded-lg flex justify-between items-center text-xs transition ${
-                    isBeingEdited ? 'border-[#6BA5D8] bg-[#102033]' : 'border-[#24374E] hover:border-[#3A5678]'
-                  }`}
-                >
-                  <div className="pr-2">
-                    <div className="font-bold text-[#6BA5D8]">
-                      Dia {st.day_number} • {st.estimated_distance_km} km
+        {showSavedListCard && (
+          savedStages.length === 0 ? (
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
+              Ainda não existem etapas guardadas nesta viagem.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {savedStages.map((st) => {
+                const isBeingEdited = editingStageId === st.id;
+                return (
+                  <div
+                    key={st.id}
+                    className="df-input p-3.5 flex justify-between items-center text-xs transition"
+                    style={
+                      isBeingEdited
+                        ? { borderColor: 'var(--accent-bright)', borderWidth: '2px' }
+                        : undefined
+                    }
+                  >
+                    <div className="pr-2 min-w-0">
+                      <div className="font-bold" style={{ color: 'var(--accent-bright)' }}>
+                        Dia {st.day_number} • {st.estimated_distance_km} km
+                      </div>
+                      <div className="font-semibold text-sm truncate mt-0.5">{st.title}</div>
+                      <div className="truncate mt-0.5" style={{ color: 'var(--muted)' }}>
+                        {st.origin_name} → {st.destination_name}
+                      </div>
                     </div>
-                    <div className="font-semibold text-[#E2E8F0] mt-0.5">{st.title}</div>
-                    <div className="text-[#9AA6B5] text-[11px]">
-                      {st.origin_name} → {st.destination_name}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        disabled={loadingEdit}
+                        onClick={() => handleEditStage(st)}
+                        className="px-2.5 py-1.5 rounded-lg font-semibold text-white transition"
+                        style={{ background: 'var(--accent)' }}
+                      >
+                        ✎ Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteStage(st)}
+                        title="Remover etapa"
+                        className="p-1.5 font-bold"
+                        style={{ color: 'var(--red)' }}
+                      >
+                        🗑️
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      disabled={loadingEdit}
-                      onClick={() => handleEditStage(st)}
-                      title="Editar etapa e waypoints"
-                      className="flex items-center gap-1 bg-[#1C2D42] hover:bg-[#2B5B84] text-[#E2E8F0] px-2.5 py-1.5 rounded-md transition"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteStage(st)}
-                      title="Remover etapa"
-                      className="text-[#9AA6B5] hover:text-red-400 p-1.5"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )
         )}
       </div>
     </div>

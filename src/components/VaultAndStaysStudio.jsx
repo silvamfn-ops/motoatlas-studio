@@ -118,6 +118,7 @@ export default function VaultAndStaysStudio({ tripId, userId, onDataChanged }) {
       if (error) throw error;
       setStayForm({ name: '', address: '', check_in_date: '', check_out_date: '', booking_reference: '', has_private_parking: true, parking_notes: '', total_cost: '' });
       loadData();
+      if (onDataChanged) onDataChanged();
       alert('Alojamento registado!');
     } catch (err) {
       alert('Erro ao guardar hotel: ' + err.message);
@@ -127,40 +128,42 @@ export default function VaultAndStaysStudio({ tripId, userId, onDataChanged }) {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="bg-[#131F2E] p-6 rounded-xl border border-[#24374E] space-y-5">
-        <div className="border-b border-[#24374E] pb-3">
-          <h2 className="text-lg font-semibold text-[#E2E8F0]">🎟️ Cofre de Bilhetes & Documentos</h2>
-          <p className="text-xs text-[#9AA6B5]">Sincroniza offline com o MotoAtlas Tour (Android)</p>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+      <div className="df-card p-5 space-y-4">
+        <div className="border-b pb-3" style={{ borderColor: 'var(--line)' }}>
+          <h2 className="text-base sm:text-lg font-bold m-0">🎟️ Cofre de Bilhetes &amp; Documentos</h2>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+            Sincroniza offline com o MotoAtlas Tour
+          </p>
         </div>
         <form onSubmit={handleSaveDocument} className="space-y-3">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-2.5">
             <input
               required
-              placeholder="Título (ex: Alhambra 10h30)"
+              placeholder="Título (ex.: Alhambra 10h30)"
               value={docForm.title}
               onChange={(e) => setDocForm({ ...docForm, title: e.target.value })}
-              className="col-span-2 bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-sm text-[#E2E8F0]"
+              className="df-input col-span-2 px-3 py-2 text-sm"
             />
             <select
               value={docForm.doc_type}
               onChange={(e) => setDocForm({ ...docForm, doc_type: e.target.value })}
-              className="bg-[#091019] border border-[#24374E] rounded-lg px-2 py-2 text-xs text-[#E2E8F0]"
+              className="df-input px-2 py-2 text-xs"
             >
               <option value="ticket">🎟️ Bilhete</option>
-              <option value="hotel_voucher">🏨 Voucher Hotel</option>
-              <option value="insurance">🛡️ Seguro / Carta Verde</option>
+              <option value="hotel_voucher">🏨 Voucher</option>
+              <option value="insurance">🛡️ Seguro</option>
               <option value="vehicle_doc">🏍️ Doc. Mota</option>
-              <option value="personal_id">🪪 Identificação</option>
+              <option value="personal_id">🪪 ID</option>
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2.5">
             <select
               value={docForm.poi_id}
               onChange={(e) => setDocForm({ ...docForm, poi_id: e.target.value })}
-              className="bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-xs text-[#E2E8F0]"
+              className="df-input px-3 py-2 text-xs"
             >
-              <option value="">Associar a Monumento (Opcional)</option>
+              <option value="">Associar a Monumento</option>
               {pois.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name} ({p.city})
@@ -171,39 +174,50 @@ export default function VaultAndStaysStudio({ tripId, userId, onDataChanged }) {
               type="date"
               value={docForm.valid_date}
               onChange={(e) => setDocForm({ ...docForm, valid_date: e.target.value })}
-              className="bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-xs text-[#E2E8F0]"
+              className="df-input px-3 py-2 text-xs"
             />
           </div>
           <div>
-            <label className="block text-xs text-[#9AA6B5] mb-1">Código / Texto para QR Offline (Opcional)</label>
+            <label className="block text-xs font-semibold mb-1">Código / Texto para QR Offline (Opcional)</label>
             <input
               placeholder="Cola o código do bilhete para gerar QR no telemóvel"
               value={docForm.qr_code_payload}
               onChange={(e) => setDocForm({ ...docForm, qr_code_payload: e.target.value })}
-              className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-xs font-mono text-[#6BA5D8]"
+              className="df-input w-full px-3 py-2 text-xs font-mono"
             />
           </div>
-          <div className="flex items-center justify-between gap-3 bg-[#091019] p-3 rounded-lg border border-[#24374E]">
-            <span className="text-xs text-[#9AA6B5] truncate">{file ? file.name : 'Anexar PDF ou Imagem (Opcional)'}</span>
-            <label className="cursor-pointer bg-[#1C2D42] hover:bg-[#253B56] px-3 py-1.5 rounded-lg text-xs font-medium text-[#E2E8F0] shrink-0">
-              Escolher Ficheiro
+          <div className="df-input flex items-center justify-between gap-3 p-2.5">
+            <span className="text-xs truncate" style={{ color: 'var(--muted)' }}>
+              {file ? file.name : 'Anexar PDF ou Imagem (Opcional)'}
+            </span>
+            <label
+              className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0"
+              style={{ background: 'var(--accent)' }}
+            >
+              Escolher
               <input type="file" accept=".pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] || null)} className="hidden" />
             </label>
           </div>
-          <button type="submit" disabled={savingDoc} className="w-full bg-[#C5CCD4] hover:bg-white text-[#0B131E] font-semibold py-2.5 rounded-lg text-sm transition">
-            {savingDoc ? 'A enviar para o cofre...' : 'Guardar no Cofre'}
+          <button
+            type="submit"
+            disabled={savingDoc}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold text-white shadow transition"
+            style={{ background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }}
+          >
+            {savingDoc ? 'A enviar para o cofre...' : '💾 Guardar no Cofre'}
           </button>
         </form>
-        <div className="space-y-2 pt-3 border-t border-[#24374E] max-h-60 overflow-y-auto">
+
+        <div className="space-y-2 pt-3 border-t max-h-60 overflow-y-auto" style={{ borderColor: 'var(--line)' }}>
           {docs.map((d) => (
-            <div key={d.id} className="bg-[#091019] p-3 rounded-lg border border-[#24374E] flex justify-between items-center text-xs">
+            <div key={d.id} className="df-input p-3 flex justify-between items-center text-xs">
               <div>
-                <div className="font-semibold text-[#E2E8F0]">{d.title}</div>
-                <div className="text-[#9AA6B5] text-[11px]">
+                <div className="font-semibold">{d.title}</div>
+                <div className="text-[11px]" style={{ color: 'var(--muted)' }}>
                   {d.qr_code_payload ? 'QR Code ativo' : ''} {d.storage_path ? '• PDF/Imagem anexado' : ''}
                 </div>
               </div>
-              <button onClick={() => handleDeleteDoc(d)} className="text-[#9AA6B5] hover:text-red-400 px-2">
+              <button onClick={() => handleDeleteDoc(d)} style={{ color: 'var(--red)' }} className="px-2 font-bold">
                 ✕
               </button>
             </div>
@@ -211,10 +225,12 @@ export default function VaultAndStaysStudio({ tripId, userId, onDataChanged }) {
         </div>
       </div>
 
-      <div className="bg-[#131F2E] p-6 rounded-xl border border-[#24374E] space-y-5">
-        <div className="border-b border-[#24374E] pb-3">
-          <h2 className="text-lg font-semibold text-[#E2E8F0]">🏨 Alojamentos & Pernoitas</h2>
-          <p className="text-xs text-[#9AA6B5]">Reservas e estacionamento sincronizados com o Tour</p>
+      <div className="df-card p-5 space-y-4">
+        <div className="border-b pb-3" style={{ borderColor: 'var(--line)' }}>
+          <h2 className="text-base sm:text-lg font-bold m-0">🏨 Alojamentos &amp; Pernoitas</h2>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+            Reservas e estacionamento sincronizados
+          </p>
         </div>
         <form onSubmit={handleSaveStay} className="space-y-3">
           <input
@@ -222,40 +238,40 @@ export default function VaultAndStaysStudio({ tripId, userId, onDataChanged }) {
             placeholder="Nome do Hotel / Alojamento *"
             value={stayForm.name}
             onChange={(e) => setStayForm({ ...stayForm, name: e.target.value })}
-            className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-sm text-[#E2E8F0]"
+            className="df-input w-full px-3 py-2 text-sm"
           />
           <input
             placeholder="Morada completa"
             value={stayForm.address}
             onChange={(e) => setStayForm({ ...stayForm, address: e.target.value })}
-            className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-sm text-[#E2E8F0]"
+            className="df-input w-full px-3 py-2 text-sm"
           />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-[11px] text-[#9AA6B5] mb-1">Check-in</label>
+              <label className="block text-[11px] font-semibold mb-1">Check-in</label>
               <input
                 type="date"
                 value={stayForm.check_in_date}
                 onChange={(e) => setStayForm({ ...stayForm, check_in_date: e.target.value })}
-                className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-xs text-[#E2E8F0]"
+                className="df-input w-full px-3 py-2 text-xs"
               />
             </div>
             <div>
-              <label className="block text-[11px] text-[#9AA6B5] mb-1">Check-out</label>
+              <label className="block text-[11px] font-semibold mb-1">Check-out</label>
               <input
                 type="date"
                 value={stayForm.check_out_date}
                 onChange={(e) => setStayForm({ ...stayForm, check_out_date: e.target.value })}
-                className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-xs text-[#E2E8F0]"
+                className="df-input w-full px-3 py-2 text-xs"
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2.5">
             <input
-              placeholder="Ref. Reserva (ex: Booking #1234)"
+              placeholder="Ref. Reserva (ex.: Booking #1234)"
               value={stayForm.booking_reference}
               onChange={(e) => setStayForm({ ...stayForm, booking_reference: e.target.value })}
-              className="bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-xs font-mono text-[#E2E8F0]"
+              className="df-input px-3 py-2 text-xs font-mono"
             />
             <input
               type="number"
@@ -263,10 +279,10 @@ export default function VaultAndStaysStudio({ tripId, userId, onDataChanged }) {
               placeholder="Custo Total (€)"
               value={stayForm.total_cost}
               onChange={(e) => setStayForm({ ...stayForm, total_cost: e.target.value })}
-              className="bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-xs font-mono text-[#E2E8F0]"
+              className="df-input px-3 py-2 text-xs font-mono"
             />
           </div>
-          <label className="flex items-center gap-2 text-xs text-[#C5CCD4] cursor-pointer">
+          <label className="flex items-center gap-2 text-xs cursor-pointer">
             <input
               type="checkbox"
               checked={stayForm.has_private_parking}
@@ -278,22 +294,32 @@ export default function VaultAndStaysStudio({ tripId, userId, onDataChanged }) {
             placeholder="Notas de estacionamento"
             value={stayForm.parking_notes}
             onChange={(e) => setStayForm({ ...stayForm, parking_notes: e.target.value })}
-            className="w-full bg-[#091019] border border-[#24374E] rounded-lg px-3 py-2 text-xs text-[#E2E8F0]"
+            className="df-input w-full px-3 py-2 text-xs"
           />
-          <button type="submit" disabled={savingStay} className="w-full bg-gradient-to-r from-[#1E466E] to-[#2B5B84] hover:from-[#265685] hover:to-[#356FA0] text-white border border-[#6BA5D8]/40 font-semibold py-2.5 rounded-lg text-sm transition">
-            {savingStay ? 'A guardar...' : 'Guardar Alojamento'}
+          <button
+            type="submit"
+            disabled={savingStay}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold text-white shadow transition"
+            style={{ background: 'linear-gradient(135deg, #1E466E, #2B5B84)' }}
+          >
+            {savingStay ? 'A guardar...' : '💾 Guardar Alojamento'}
           </button>
         </form>
-        <div className="space-y-2 pt-3 border-t border-[#24374E] max-h-60 overflow-y-auto">
+
+        <div className="space-y-2 pt-3 border-t max-h-60 overflow-y-auto" style={{ borderColor: 'var(--line)' }}>
           {stays.map((s) => (
-            <div key={s.id} className="bg-[#091019] p-3 rounded-lg border border-[#24374E] text-xs flex justify-between items-center">
+            <div key={s.id} className="df-input p-3 text-xs flex justify-between items-center">
               <div>
-                <div className="font-semibold text-[#E2E8F0]">{s.name}</div>
-                <div className="text-[#9AA6B5] text-[11px]">
+                <div className="font-semibold">{s.name}</div>
+                <div className="text-[11px]" style={{ color: 'var(--muted)' }}>
                   {s.check_in_date} → {s.check_out_date} {s.booking_reference ? `• Ref: ${s.booking_reference}` : ''}
                 </div>
               </div>
-              {s.has_private_parking && <span className="text-[#6BA5D8] font-bold">🅿️ Mota</span>}
+              {s.has_private_parking && (
+                <span className="font-bold" style={{ color: 'var(--accent-bright)' }}>
+                  🅿️ Mota
+                </span>
+              )}
             </div>
           ))}
         </div>
